@@ -15,6 +15,16 @@ import { ApiClientError } from "@/lib/client/api";
 // reveal whether an email exists.
 // ============================================================
 
+const DEMO_PASSWORD = "Demo@Pass1";
+
+const DEMO_ACCOUNTS: { role: string; email: string; note?: string }[] = [
+  { role: "SYSTEM_ADMIN", email: "sysadmin@demo.gov.in" },
+  { role: "DEPARTMENT_ADMIN", email: "arjun.sharma@demo.gov.in", note: "Indore Police" },
+  { role: "DEPARTMENT_ADMIN", email: "meera.desai@demo.gov.in", note: "Indore FSL" },
+  { role: "OFFICER", email: "vishnu.kumar@demo.gov.in", note: "Indore Police" },
+  { role: "AUDITOR", email: "priya.nair@demo.gov.in" },
+];
+
 export function LoginView() {
   const { login } = useAuth();
   const [email, setEmail] = React.useState("");
@@ -98,15 +108,26 @@ export function LoginView() {
             <Info aria-hidden size={16} /> Demo accounts (seed data)
           </CardTitle>
           <CardDescription className="text-xs">
-            Development seed accounts — password for all: <code className="rounded bg-muted px-1 py-0.5">Demo@Pass1</code>
+            Development seed accounts — click one to fill the form.
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-1 text-xs text-muted-foreground">
-          <p><span className="font-medium text-foreground">SYSTEM_ADMIN</span> — sysadmin@demo.gov.in</p>
-          <p><span className="font-medium text-foreground">DEPARTMENT_ADMIN</span> — arjun.sharma@demo.gov.in (Indore Police)</p>
-          <p><span className="font-medium text-foreground">DEPARTMENT_ADMIN</span> — meera.desai@demo.gov.in (Indore FSL)</p>
-          <p><span className="font-medium text-foreground">OFFICER</span> — vishnu.kumar@demo.gov.in (Indore Police)</p>
-          <p><span className="font-medium text-foreground">AUDITOR</span> — priya.nair@demo.gov.in</p>
+          <p className="mb-1">Click an account to fill the form. Password for all: <code className="rounded bg-muted px-1 py-0.5">Demo@Pass1</code></p>
+          {DEMO_ACCOUNTS.map((acct) => (
+            <button
+              key={acct.email}
+              type="button"
+              onClick={() => {
+                setEmail(acct.email);
+                setPassword(DEMO_PASSWORD);
+                setError(null);
+              }}
+              className="rounded px-1 py-0.5 text-left transition-colors hover:bg-muted hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+            >
+              <span className="font-medium text-foreground">{acct.role}</span> — {acct.email}
+              {acct.note ? ` (${acct.note})` : ""}
+            </button>
+          ))}
         </CardContent>
       </Card>
     </div>

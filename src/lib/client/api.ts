@@ -16,8 +16,36 @@ export class ApiClientError extends Error {
   }
 }
 
+// Transient failures (e.g. a dev-server restart mid-request, proxy hiccup)
+// surface as network errors or 5xx. Idempotent GETs are safe to retry once
+// after a short backoff so a cold-start race never bricks the UI.
+const RETRYABLE_STATUS = new Set([500, 502, 503, 504]);
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+async function fetchWithRetry(path: string, init?: RequestInit): Promise<Response> {
+  const isGet = (init?.method ?? "GET") === "GET";
+  try {
+    const res = await fetch(path, init);
+    if (isGet && RETRYABLE_STATUS.has(res.status)) {
+      await sleep(350);
+      return fetch(path, init);
+    }
+    return res;
+  } catch (err) {
+    if (isGet) {
+      await sleep(350);
+      try {
+        return await fetch(path, init);
+      } catch {
+        throw err; // surface the original network error
+      }
+    }
+    throw err;
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, {
+  const res = await fetchWithRetry(path, {
     ...init,
     headers: {
       ...(init?.body && !(init.body instanceof FormData)
@@ -36,6 +64,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
 
   if (!res.ok) {
+    if (res.status === 401 && !path.startsWith("/api/v1/auth/")) {
+      // Session expired mid-use — reload once so the app router resolves to
+      // the login view instead of stacking errors on a stale view.
+      window.location.assign("/");
+      throw new ApiClientError(401, "SESSION_EXPIRED", "Your session has expired. Please sign in again.");
+    }
     throw new ApiClientError(
       res.status,
       body?.error?.code || "REQUEST_FAILED",

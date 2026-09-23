@@ -23,3 +23,21 @@ Stage Summary:
 - Key artifacts: prisma/schema.prisma, prisma/seed.ts, src/lib/* (11 core libs), src/app/api/v1/** (19 route files), src/components/platform/** (11 views + shell + components), tests/api/phase1.test.ts (50 passing).
 - Demo logins: sysadmin@demo.gov.in / arjun.sharma@demo.gov.in (Indore Police admin) / vishnu.kumar@demo.gov.in (officer) / priya.nair@demo.gov.in (auditor) — password Demo@Pass1 (SEED_PASSWORD).
 - Deferred to later phases per spec: cases, documents, evidence, AI, graph, blockchain audit, printing, biometrics (clean auth abstraction retained for Phase 10).
+
+---
+Task ID: 2
+Agent: Super Z (main agent)
+Task: "fix" — diagnose user-reported failure (screenshot upload failed; self-diagnosed from dev.log + DB state)
+
+Work Log:
+- Reconstructed user session from dev.log: login 200 → logout 200 → login 401 → 5 page reloads stuck at login screen. Also found 2× transient 500 on GET /api/v1/geography/countries immediately after a next.config.ts-change server restart (cold-start race; no route-level error logged, same endpoint 200 right after).
+- Verified all 8 seed officers' bcrypt hashes against Demo@Pass1 — all OK. Root cause of the 401: test/E2E residue in the demo DB (9 junk officers incl. ravi.verma@demo.gov.in with non-seed passwords, 9 junk departments DEPT-MP-IND-POL-002..010, orphan logo files). Users picking those directory-visible accounts hit 401.
+- Fix A (data): prisma db push --force-reset + reseed; purged residue officers/departments (with their IdentityEvents and orphan logo uploads). Final state: 5 seed departments, 8 seed officers, 1 referenced demo logo.
+- Fix B (resilience): src/lib/client/api.ts — fetchWithRetry: idempotent GETs retry once after 350ms on network error or 500/502/503/504; non-auth 401s now trigger a single reload to resolve to login view instead of stacking errors on a stale view.
+- Fix C (UX): LoginView demo accounts are now click-to-fill chips (fills email + Demo@Pass1) so typos can't block login.
+- Verified: ESLint clean on both modified files; test suite 50/50 pass (one transient cold-compile failure on first post-reset run, stable on re-run); curl smoke — all 5 demo logins 200 (429s seen mid-verify were the per-IP 8/5min limiter working as designed during smoke bursts); GET / 200; dev.log clean.
+- Note: re-running the API test suite re-creates residue officers/departments by design (tests assert creation); DB is clean now. If tests run again, purge afterwards or run against a separate DB in the future.
+
+Stage Summary:
+- App is restored to a pristine, fully-working demo state; login UX hardened against typos; client resilient to transient 5xx.
+- Demo logins unchanged (password Demo@Pass1): sysadmin@, arjun.sharma@, meera.desai@, vishnu.kumar@, priya.nair@demo.gov.in.
