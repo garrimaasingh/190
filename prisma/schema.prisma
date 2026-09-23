@@ -1,0 +1,157 @@
+// ============================================================
+// PHASE 1 — Centralized Platform: Identity & Organization Layer
+// Domain model: Country → State → District → City → Department → Officers
+// NOTE: SQLite connector does not support Prisma enums; status/type
+// fields are strings validated at the application boundary (Zod)
+// and defined once in src/lib/constants.ts. Schema is portable to
+// PostgreSQL for later phases (swap datasource provider only).
+// ============================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Country {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  code      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  states    State[]
+}
+
+model State {
+  id         String     @id @default(cuid())
+  countryId  String
+  country    Country    @relation(fields: [countryId], references: [id], onDelete: Restrict)
+  name       String
+  code       String
+  status     String     @default("ACTIVE")
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+  districts  District[]
+
+  @@unique([countryId, code])
+  @@unique([countryId, name])
+  @@index([countryId])
+}
+
+model District {
+  id          String      @id @default(cuid())
+  stateId     String
+  state       State       @relation(fields: [stateId], references: [id], onDelete: Restrict)
+  name        String
+  code        String
+  status      String      @default("ACTIVE")
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  cities      City[]
+
+  @@unique([stateId, code])
+  @@unique([stateId, name])
+  @@index([stateId])
+}
+
+model City {
+  id          String      @id @default(cuid())
+  districtId  String
+  district    District    @relation(fields: [districtId], references: [id], onDelete: Restrict)
+  name        String
+  code        String
+  status      String      @default("ACTIVE")
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  departments Department[]
+
+  @@unique([districtId, code])
+  @@unique([districtId, name])
+  @@index([districtId])
+}
+
+model Department {
+  id             String      @id @default(cuid())
+  departmentCode String      @unique
+  name           String
+  departmentType String
+  description    String?
+  logoPath       String?
+  logoMime       String?
+  stateId        String
+  districtId     String
+  cityId         String
+  city           City        @relation(fields: [cityId], references: [id], onDelete: Restrict)
+  status         String      @default("PENDING")
+  officers       Officer[]
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  @@index([stateId])
+  @@index([districtId])
+  @@index([cityId])
+  @@index([departmentType])
+  @@index([status])
+}
+
+model Officer {
+  id                   String    @id @default(cuid())
+  officerId            String    @unique
+  departmentId         String
+  department           Department @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  name                 String
+  email                String    @unique
+  phone                String?
+  designation          String
+  role                 String
+  status               String    @default("PENDING")
+  passwordHash         String
+  authenticationStatus String    @default("PASSWORD")
+  lastLoginAt          DateTime?
+  sessions             Session[]
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  @@index([departmentId])
+  @@index([role])
+  @@index([status])
+}
+
+model Session {
+  id            String    @id
+  officerId     String
+  officer       Officer   @relation(fields: [officerId], references: [id], onDelete: Cascade)
+  departmentId  String
+  createdAt     DateTime  @default(now())
+  expiresAt     DateTime
+  lastActivity  DateTime  @default(now())
+  revoked       Boolean   @default(false)
+  revokedAt     DateTime?
+  userAgent     String?
+  ipAddress     String?
+
+  @@index([officerId])
+  @@index([departmentId])
+}
+
+model IdentityEvent {
+  id               String   @id @default(cuid())
+  eventType        String
+  actorOfficerId   String?
+  actorIdentifier  String?
+  departmentId     String?
+  targetType       String?
+  targetId         String?
+  metadata         String?
+  ipAddress        String?
+  userAgent        String?
+  createdAt        DateTime @default(now())
+
+  @@index([eventType])
+  @@index([actorOfficerId])
+  @@index([departmentId])
+  @@index([createdAt])
+}
