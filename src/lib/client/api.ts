@@ -124,6 +124,16 @@ export interface Meta {
   officerStatuses: string[];
   officerStatusTransitions: Record<string, string[]>;
   rolePermissions: Record<string, string[]>;
+  // Phase 2
+  caseTypes: string[];
+  casePriorities: string[];
+  caseStatuses: string[];
+  caseStatusTransitions: Record<string, string[]>;
+  participationTypes: string[];
+  caseOfficerRoles: string[];
+  caseOfficerStatuses: string[];
+  transferStatuses: string[];
+  caseEventTypes: string[];
 }
 
 export interface DepartmentListItem {
@@ -202,4 +212,139 @@ export interface CityRow { id: string; name: string; code: string; status: strin
 
 export function logoUrl(logoPath: string | null | undefined): string | null {
   return logoPath ? `/api/v1/files/logos/${logoPath}` : null;
+}
+
+// ============================================================
+// PHASE 2 — case types
+// ============================================================
+
+export interface CaseRow {
+  id: string;
+  caseId: string;
+  caseNumber: string | null;
+  title: string;
+  caseType: string;
+  priority: string;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+  originatingDepartment: { id: string; name: string; departmentType: string };
+  currentCustodianDepartment: { id: string; name: string; departmentType: string };
+  district: { name: string };
+  city: { name: string };
+}
+
+export interface DepartmentRef {
+  id: string;
+  departmentCode: string;
+  name: string;
+  departmentType: string;
+  logoPath?: string | null;
+}
+
+export interface OfficerRef {
+  id: string;
+  officerId: string;
+  name: string;
+  designation: string;
+  role: string;
+  status: string;
+}
+
+export interface CaseParticipant {
+  id: string;
+  department: DepartmentRef;
+  participationType: string;
+  status?: string;
+  isOrigin: boolean;
+  isCustodian: boolean;
+  joinedAt: string;
+}
+
+export interface CaseOfficerRow {
+  id: string;
+  officer: OfficerRef;
+  department: { id: string; name: string; departmentType: string };
+  roleOnCase: string;
+  status: string;
+  assignedAt: string;
+  unassignedAt: string | null;
+}
+
+export interface CaseTransferRow {
+  id: string;
+  transferId: string;
+  status: string;
+  reason: string;
+  transferNotes?: string | null;
+  fromDepartment: { id: string; name: string };
+  toDepartment: { id: string; name: string };
+  requestedByOfficer: { officerId: string; name: string };
+  acceptedByOfficer?: { officerId: string; name: string } | null;
+  toOfficer?: { officerId: string; name: string } | null;
+  requestedAt: string;
+  acceptedAt: string | null;
+  rejectedAt: string | null;
+  cancelledAt: string | null;
+}
+
+export interface CaseTimelineEvent {
+  id: string;
+  eventType: string;
+  actor: { id: string; officerId: string; name: string } | null;
+  actorIdentifier: string | null;
+  department: string | null;
+  description: string | null;
+  createdAt: string;
+}
+
+export interface CaseViewerAccess {
+  level: "none" | "view" | "manage";
+  view: boolean;
+  manage: boolean;
+  isCustodianSide: boolean;
+  isOriginSide: boolean;
+  assigned: boolean;
+  reasons: string[];
+}
+
+export interface CaseDetail {
+  id: string;
+  caseId: string;
+  caseNumber: string | null;
+  title: string;
+  description: string | null;
+  caseType: string;
+  caseCategory: string | null;
+  priority: string;
+  status: string;
+  mutable: boolean;
+  allowedTransitions: string[];
+  geography: { state: string; district: string; city: string };
+  originatingDepartment: DepartmentRef;
+  currentCustodianDepartment: DepartmentRef;
+  currentCustodianOfficer: { id: string; officerId: string; name: string; designation: string } | null;
+  createdByOfficer: { id: string; officerId: string; name: string };
+  openedAt: string | null;
+  closedAt: string | null;
+  archivedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+  participants: CaseParticipant[];
+  officers: CaseOfficerRow[];
+  transfers: CaseTransferRow[];
+  timeline: CaseTimelineEvent[];
+  viewer: CaseViewerAccess;
+}
+
+export interface IncomingTransferRow {
+  id: string;
+  transferId: string;
+  status: string;
+  reason: string;
+  requestedAt: string;
+  case: { caseId: string; title: string; status: string; priority: string; caseType: string };
+  fromDepartment: { id: string; name: string; departmentType: string };
+  requestedByOfficer: { officerId: string; name: string };
 }

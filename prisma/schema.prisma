@@ -35,6 +35,7 @@ model State {
   createdAt  DateTime   @default(now())
   updatedAt  DateTime   @updatedAt
   districts  District[]
+  cases      Case[]
 
   @@unique([countryId, code])
   @@unique([countryId, name])
@@ -51,6 +52,7 @@ model District {
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
   cities      City[]
+  cases       Case[]
 
   @@unique([stateId, code])
   @@unique([stateId, name])
@@ -67,6 +69,7 @@ model City {
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
   departments Department[]
+  cases       Case[]
 
   @@unique([districtId, code])
   @@unique([districtId, name])
@@ -87,6 +90,12 @@ model Department {
   city           City        @relation(fields: [cityId], references: [id], onDelete: Restrict)
   status         String      @default("PENDING")
   officers       Officer[]
+  casesAsOrigin      Case[]           @relation("caseOrigin")
+  casesAsCustodian   Case[]           @relation("caseCustodian")
+  caseParticipations CaseDepartment[]
+  caseOfficerRecords CaseOfficer[]
+  transfersAsFrom    CaseTransfer[]   @relation("transferFrom")
+  transfersAsTo      CaseTransfer[]   @relation("transferTo")
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
 
@@ -112,6 +121,13 @@ model Officer {
   authenticationStatus String    @default("PASSWORD")
   lastLoginAt          DateTime?
   sessions             Session[]
+  casesAsCustodianOfficer Case[]         @relation("caseCustodianOfficer")
+  casesCreated            Case[]         @relation("caseCreatedBy")
+  caseOfficerRecords      CaseOfficer[]
+  transfersFromOfficer    CaseTransfer[] @relation("transferFromOfficer")
+  transfersToOfficer      CaseTransfer[] @relation("transferToOfficer")
+  transfersRequestedBy    CaseTransfer[] @relation("transferRequestedBy")
+  transfersAcceptedBy     CaseTransfer[] @relation("transferAcceptedBy")
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
 
@@ -154,4 +170,177 @@ model IdentityEvent {
   @@index([actorOfficerId])
   @@index([departmentId])
   @@index([createdAt])
+}
+
+// ============================================================
+// PHASE 2 — Case Management & Custody (spec §4/§12/§13/§19/§24)
+// The CASE is the central entity of the platform. Status/type
+// fields are strings validated at the application boundary
+// (Zod) and defined once in src/lib/constants.ts — SQLite has
+// no enums; schema stays PostgreSQL-portable.
+// Historical records (custody, participation, timeline) are
+// NEVER cascade-deleted (spec §35/§36): Restrict everywhere.
+// ============================================================
+
+model Case {
+  id                            String    @id @default(cuid())
+  caseId                        String    @unique // public identity: CASE-MP-IND-2026-000001
+  caseNumber                    String?   // official reference: FIR/124/2026 (uniqueness scoped per originating dept + format)
+  title                         String
+  description                   String?
+  caseType                      String
+  caseCategory                  String?
+  priority                      String    @default("NORMAL")
+  status                        String    @default("DRAFT")
+
+  stateId                       String
+  state                         State     @relation(fields: [stateId], references: [id], onDelete: Restrict)
+  districtId                    String
+  district                      District  @relation(fields: [districtId], references: [id], onDelete: Restrict)
+  cityId                        String
+  city                          City      @relation(fields: [cityId], references: [id], onDelete: Restrict)
+
+  originatingDepartmentId       String
+  originatingDepartment         Department @relation("caseOrigin", fields: [originatingDepartmentId], references: [id], onDelete: Restrict)
+  currentCustodianDepartmentId  String
+  currentCustodianDepartment    Department @relation("caseCustodian", fields: [currentCustodianDepartmentId], references: [id], onDelete: Restrict)
+  currentCustodianOfficerId     String?
+  currentCustodianOfficer       Officer?  @relation("caseCustodianOfficer", fields: [currentCustodianOfficerId], references: [id], onDelete: SetNull)
+
+  createdByOfficerId            String
+  createdByOfficer              Officer   @relation("caseCreatedBy", fields: [createdByOfficerId], references: [id], onDelete: Restrict)
+  createdByDepartmentId         String
+
+  openedAt                      DateTime?
+  closedAt                      DateTime?
+  archivedAt                    DateTime?
+  version                       Int       @default(1) // optimistic concurrency for custody (spec §47)
+
+  departments                   CaseDepartment[]
+  officers                      CaseOfficer[]
+  transfers                     CaseTransfer[]
+  events                        CaseEvent[]
+
+  createdAt                     DateTime  @default(now())
+  updatedAt                     DateTime  @updatedAt
+
+  @@index([caseId])
+  @@index([caseNumber])
+  @@index([status])
+  @@index([caseType])
+  @@index([priority])
+  @@index([originatingDepartmentId])
+  @@index([currentCustodianDepartmentId])
+  @@index([createdByDepartmentId])
+  @@index([stateId])
+  @@index([districtId])
+  @@index([cityId])
+  @@index([createdAt])
+}
+
+model CaseDepartment {
+  id                String    @id @default(cuid())
+  caseId            String
+  case              Case      @relation(fields: [caseId], references: [id], onDelete: Restrict)
+  departmentId      String
+  department        Department @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+
+  participationType String    // ORIGINATING | ACTIVE_CUSTODIAN | PARTICIPATING | CONSULTED | HISTORICAL
+  status            String    @default("ACTIVE") // ACTIVE | REMOVED
+  joinedAt          DateTime  @default(now())
+  leftAt            DateTime?
+  addedByOfficerId  String?
+  note              String?
+
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@unique([caseId, departmentId])
+  @@index([caseId])
+  @@index([departmentId])
+  @@index([participationType])
+  @@index([status])
+}
+
+model CaseOfficer {
+  id                 String    @id @default(cuid())
+  caseId             String
+  case               Case      @relation(fields: [caseId], references: [id], onDelete: Restrict)
+  officerId          String
+  officer            Officer   @relation(fields: [officerId], references: [id], onDelete: Restrict)
+  departmentId       String
+  department         Department @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+
+  roleOnCase         String
+  status             String    @default("ACTIVE") // ACTIVE | REMOVED
+  assignedAt         DateTime  @default(now())
+  unassignedAt       DateTime?
+  assignedByOfficerId String?
+  note               String?
+
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@unique([caseId, officerId])
+  @@index([caseId])
+  @@index([officerId])
+  @@index([departmentId])
+  @@index([status])
+}
+
+model CaseTransfer {
+  id                  String    @id @default(cuid())
+  transferId          String    @unique // TRF-MP-IND-2026-000001
+  caseId              String
+  case                Case      @relation(fields: [caseId], references: [id], onDelete: Restrict)
+
+  fromDepartmentId    String
+  fromDepartment      Department @relation("transferFrom", fields: [fromDepartmentId], references: [id], onDelete: Restrict)
+  toDepartmentId      String
+  toDepartment        Department @relation("transferTo", fields: [toDepartmentId], references: [id], onDelete: Restrict)
+  fromOfficerId       String?
+  fromOfficer         Officer?  @relation("transferFromOfficer", fields: [fromOfficerId], references: [id], onDelete: SetNull)
+  toOfficerId         String?
+  toOfficer           Officer?  @relation("transferToOfficer", fields: [toOfficerId], references: [id], onDelete: SetNull)
+  requestedByOfficerId String
+  requestedByOfficer  Officer   @relation("transferRequestedBy", fields: [requestedByOfficerId], references: [id], onDelete: Restrict)
+  acceptedByOfficerId String?
+  acceptedByOfficer   Officer?  @relation("transferAcceptedBy", fields: [acceptedByOfficerId], references: [id], onDelete: SetNull)
+
+  status              String    @default("REQUESTED") // REQUESTED | ACCEPTED | REJECTED | CANCELLED | EXPIRED
+  reason              String
+  transferNotes       String?
+
+  requestedAt         DateTime  @default(now())
+  acceptedAt          DateTime?
+  rejectedAt          DateTime?
+  cancelledAt         DateTime?
+
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@index([caseId])
+  @@index([status])
+  @@index([toDepartmentId])
+  @@index([fromDepartmentId])
+}
+
+model CaseEvent {
+  id              String   @id @default(cuid())
+  caseId          String
+  case            Case     @relation(fields: [caseId], references: [id], onDelete: Restrict)
+  eventType       String
+  actorOfficerId  String?
+  actorIdentifier String?
+  departmentId    String?
+  targetType      String?
+  targetId        String?
+  description     String?
+  metadata        String?
+  createdAt       DateTime @default(now())
+
+  @@index([caseId])
+  @@index([caseId, createdAt])
+  @@index([eventType])
+  @@index([departmentId])
 }

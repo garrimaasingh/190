@@ -3,6 +3,12 @@ import {
   DEPARTMENT_TYPES,
   OFFICER_ROLES,
   PASSWORD_MIN_LENGTH,
+  CASE_TYPES,
+  CASE_PRIORITIES,
+  CASE_OFFICER_ROLES,
+  CASE_TITLE_MAX_LENGTH,
+  CASE_DESCRIPTION_MAX_LENGTH,
+  CASE_NUMBER_MAX_LENGTH,
 } from "@/lib/constants";
 
 // ============================================================
@@ -126,4 +132,95 @@ export const listQuerySchema = z.object({
   role: z.string().optional(),
   page: z.coerce.number().int().min(1).optional().default(1),
   pageSize: z.coerce.number().int().min(1).max(100).optional().default(10),
+});
+
+// ============================================================
+// PHASE 2 — Case schemas (spec §15/§17/§32).
+// NOTE: no created_by / department / custodian / status fields are
+// accepted from the client — they are derived server-side.
+// ============================================================
+
+const caseNumberSchema = z
+  .string()
+  .trim()
+  .max(CASE_NUMBER_MAX_LENGTH, `Case number must be at most ${CASE_NUMBER_MAX_LENGTH} characters.`)
+  .regex(
+    /^[A-Za-z0-9][A-Za-z0-9 \-_/.]*$/,
+    "Case number may contain letters, digits, spaces and - _ / . only."
+  )
+  .optional()
+  .or(z.literal(""))
+  .transform((v) => (v ? v : undefined));
+
+export const createCaseSchema = z.object({
+  title: z
+    .string()
+    .trim()
+    .min(4, "Case title is required (min 4 characters).")
+    .max(CASE_TITLE_MAX_LENGTH, `Title must be at most ${CASE_TITLE_MAX_LENGTH} characters.`),
+  caseNumber: caseNumberSchema,
+  description: z
+    .string()
+    .trim()
+    .max(CASE_DESCRIPTION_MAX_LENGTH)
+    .optional()
+    .or(z.literal(""))
+    .transform((v) => (v ? v : undefined)),
+  caseType: z.enum(CASE_TYPES),
+  caseCategory: z.string().trim().max(80).optional().or(z.literal("")).transform((v) => (v ? v : undefined)),
+  priority: z.enum(CASE_PRIORITIES),
+  stateId: z.string().min(1, "State is required."),
+  districtId: z.string().min(1, "District is required."),
+  cityId: z.string().min(1, "City is required."),
+});
+
+export const updateCaseSchema = z.object({
+  title: z.string().trim().min(4).max(CASE_TITLE_MAX_LENGTH).optional(),
+  caseNumber: caseNumberSchema,
+  description: z.string().trim().max(CASE_DESCRIPTION_MAX_LENGTH).optional().or(z.literal("")),
+  caseCategory: z.string().trim().max(80).optional().or(z.literal("")),
+  priority: z.enum(CASE_PRIORITIES).optional(),
+});
+
+export const updateCaseStatusSchema = z.object({
+  status: z.string().min(1, "Status is required."),
+});
+
+export const caseListQuerySchema = z.object({
+  search: z.string().trim().max(120).optional(),
+  caseType: z.string().optional(),
+  priority: z.string().optional(),
+  status: z.string().optional(),
+  custodianDepartmentId: z.string().optional(),
+  originatingDepartmentId: z.string().optional(),
+  stateId: z.string().optional(),
+  districtId: z.string().optional(),
+  cityId: z.string().optional(),
+  createdFrom: z.string().trim().optional(),
+  createdTo: z.string().trim().optional(),
+  page: z.coerce.number().int().min(1).optional().default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).optional().default(10),
+});
+
+export const addCaseOfficerSchema = z.object({
+  officerId: z.string().min(1, "Officer is required."),
+  roleOnCase: z.enum(CASE_OFFICER_ROLES),
+  note: z.string().trim().max(500).optional().or(z.literal("")),
+});
+
+export const updateCaseOfficerSchema = z.object({
+  roleOnCase: z.enum(CASE_OFFICER_ROLES).optional(),
+});
+
+export const addCaseDepartmentSchema = z.object({
+  departmentId: z.string().min(1, "Department is required."),
+  participationType: z.enum(["PARTICIPATING", "CONSULTED"]).default("PARTICIPATING"),
+  note: z.string().trim().max(500).optional().or(z.literal("")),
+});
+
+export const createTransferSchema = z.object({
+  toDepartmentId: z.string().min(1, "Destination department is required."),
+  toOfficerId: z.string().optional().or(z.literal("")).transform((v) => (v ? v : undefined)),
+  reason: z.string().trim().min(4, "A reason is required for the custody transfer.").max(1000),
+  transferNotes: z.string().trim().max(2000).optional().or(z.literal("")).transform((v) => (v ? v : undefined)),
 });

@@ -13,7 +13,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { LayoutDashboard, Network, Building2, Users, ScrollText, UserCircle, Settings as SettingsIcon, Menu, LogOut, ShieldCheck } from "lucide-react";
+import { LayoutDashboard, Network, Building2, Users, ScrollText, UserCircle, Settings as SettingsIcon, Menu, LogOut, ShieldCheck, FolderSearch } from "lucide-react";
 
 // ============================================================
 // AppShell (spec §20/§53): role-aware sidebar + topbar.
@@ -22,6 +22,9 @@ import { LayoutDashboard, Network, Building2, Users, ScrollText, UserCircle, Set
 
 export type ViewKey =
   | "dashboard"
+  | "cases"
+  | "case-create"
+  | "case-detail"
   | "organization"
   | "departments"
   | "department-register"
@@ -41,6 +44,7 @@ export interface NavItem {
 
 const NAV: NavItem[] = [
   { key: "dashboard", label: "Dashboard", icon: <LayoutDashboard size={18} aria-hidden />, roles: ["SYSTEM_ADMIN", "DEPARTMENT_ADMIN", "OFFICER", "AUDITOR"] },
+  { key: "cases", label: "Cases", icon: <FolderSearch size={18} aria-hidden />, roles: ["SYSTEM_ADMIN", "DEPARTMENT_ADMIN", "OFFICER", "AUDITOR"] },
   { key: "organization", label: "Organization", icon: <Network size={18} aria-hidden />, roles: ["SYSTEM_ADMIN", "DEPARTMENT_ADMIN", "OFFICER"] },
   { key: "departments", label: "Departments", icon: <Building2 size={18} aria-hidden />, roles: ["SYSTEM_ADMIN", "AUDITOR"] },
   { key: "department-register", label: "Register Department", icon: <Building2 size={18} aria-hidden />, roles: ["SYSTEM_ADMIN"] },
@@ -70,7 +74,10 @@ export function AppShell({
   const navList = (
     <nav aria-label="Primary navigation" className="flex flex-col gap-1 px-3 py-4">
       {items.map((item) => {
-        const active = item.key === view || (view === "officer-detail" && item.key === "officers");
+        const active =
+          item.key === view ||
+          (view === "officer-detail" && item.key === "officers") ||
+          ((view === "case-create" || view === "case-detail") && item.key === "cases");
         return (
           <button
             key={item.key}
@@ -173,7 +180,7 @@ export function AppShell({
       </div>
 
       <footer className="border-t py-3 text-center text-xs text-muted-foreground">
-        Central Justice Platform · Phase 1 — Identity &amp; Organization
+        Central Justice Platform · Phase 2 — Case Management &amp; Custody
       </footer>
     </div>
   );

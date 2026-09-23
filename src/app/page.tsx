@@ -14,6 +14,9 @@ import { ProfileView } from "@/components/platform/views/ProfileView";
 import { SettingsView } from "@/components/platform/views/SettingsView";
 import { OrganizationView } from "@/components/platform/views/OrganizationView";
 import { EventsView } from "@/components/platform/views/EventsView";
+import { CasesView } from "@/components/platform/views/CasesView";
+import { CaseCreateView } from "@/components/platform/views/CaseCreateView";
+import { CaseDashboardView } from "@/components/platform/views/CaseDashboardView";
 import { LoadingState, ErrorState } from "@/components/platform/common";
 import { ShieldAlert } from "lucide-react";
 
@@ -28,6 +31,7 @@ interface Navigation {
   view: ViewKey;
   departmentId?: string;
   officerId?: string;
+  caseId?: string;
 }
 function AccessDenied({ what }: { what: string }) {
   return (
@@ -66,6 +70,29 @@ function Shell() {
   switch (nav.view) {
     case "dashboard":
       content = <DashboardView onNavigate={navigate} />;
+      break;
+    case "cases":
+      content = (
+        <CasesView
+          onOpenCase={(caseId) => setNav({ view: "case-detail", caseId })}
+          onCreateCase={() => navigate("case-create")}
+        />
+      );
+      break;
+    case "case-create":
+      content =
+        role === "AUDITOR" ? (
+          <AccessDenied what="case creation" />
+        ) : (
+          <CaseCreateView onCreated={(caseId) => setNav({ view: "case-detail", caseId })} />
+        );
+      break;
+    case "case-detail":
+      content = nav.caseId ? (
+        <CaseDashboardView caseRef={nav.caseId} onBack={() => navigate("cases")} />
+      ) : (
+        <AccessDenied what="this page" />
+      );
       break;
     case "organization":
       content =

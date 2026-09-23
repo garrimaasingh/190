@@ -29,6 +29,18 @@ export const PERMISSIONS = {
   PLATFORM_STATS_READ: "platform.stats.read",
   EVENTS_READ: "events.read",
   LOGO_UPDATE: "logo.update",
+  // Phase 2 — cases. Role permission is necessary but NOT sufficient:
+  // every case API additionally enforces case-level access
+  // (custodian / participation / explicit assignment) in
+  // src/lib/cases/access.ts (spec §14/§46).
+  CASE_READ: "case.read",
+  CASE_CREATE: "case.create",
+  CASE_UPDATE: "case.update",
+  CASE_STATUS_UPDATE: "case.status.update",
+  CASE_OFFICER_MANAGE: "case.officer.manage",
+  CASE_DEPARTMENT_MANAGE: "case.department.manage",
+  CASE_TRANSFER_INITIATE: "case.transfer.initiate",
+  CASE_TRANSFER_DECIDE: "case.transfer.decide",
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -51,6 +63,14 @@ const SYSTEM_ADMIN: Permission[] = [
   PERMISSIONS.PLATFORM_STATS_READ,
   PERMISSIONS.EVENTS_READ,
   PERMISSIONS.LOGO_UPDATE,
+  PERMISSIONS.CASE_READ,
+  PERMISSIONS.CASE_CREATE,
+  PERMISSIONS.CASE_UPDATE,
+  PERMISSIONS.CASE_STATUS_UPDATE,
+  PERMISSIONS.CASE_OFFICER_MANAGE,
+  PERMISSIONS.CASE_DEPARTMENT_MANAGE,
+  PERMISSIONS.CASE_TRANSFER_INITIATE,
+  PERMISSIONS.CASE_TRANSFER_DECIDE,
 ];
 
 const DEPARTMENT_ADMIN: Permission[] = [
@@ -67,6 +87,14 @@ const DEPARTMENT_ADMIN: Permission[] = [
   PERMISSIONS.PASSWORD_UPDATE,
   PERMISSIONS.ORG_READ,
   PERMISSIONS.LOGO_UPDATE,
+  PERMISSIONS.CASE_READ,
+  PERMISSIONS.CASE_CREATE,
+  PERMISSIONS.CASE_UPDATE,
+  PERMISSIONS.CASE_STATUS_UPDATE,
+  PERMISSIONS.CASE_OFFICER_MANAGE,
+  PERMISSIONS.CASE_DEPARTMENT_MANAGE,
+  PERMISSIONS.CASE_TRANSFER_INITIATE,
+  PERMISSIONS.CASE_TRANSFER_DECIDE,
 ];
 
 const OFFICER: Permission[] = [
@@ -76,6 +104,13 @@ const OFFICER: Permission[] = [
   PERMISSIONS.PROFILE_UPDATE,
   PERMISSIONS.PASSWORD_UPDATE,
   PERMISSIONS.ORG_READ,
+  PERMISSIONS.CASE_READ,
+  PERMISSIONS.CASE_CREATE,
+  PERMISSIONS.CASE_UPDATE,
+  PERMISSIONS.CASE_STATUS_UPDATE,
+  PERMISSIONS.CASE_OFFICER_MANAGE,
+  PERMISSIONS.CASE_TRANSFER_INITIATE,
+  PERMISSIONS.CASE_TRANSFER_DECIDE,
 ];
 
 const AUDITOR: Permission[] = [
@@ -85,6 +120,7 @@ const AUDITOR: Permission[] = [
   PERMISSIONS.ORG_READ,
   PERMISSIONS.PLATFORM_STATS_READ,
   PERMISSIONS.EVENTS_READ,
+  PERMISSIONS.CASE_READ, // read-only by policy — no case mutation permission is granted
 ];
 
 export const ROLE_PERMISSIONS: Record<string, Permission[]> = {

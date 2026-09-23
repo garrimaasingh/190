@@ -7,6 +7,15 @@ import {
   OFFICER_ROLES,
   OFFICER_STATUSES,
   OFFICER_STATUS_TRANSITIONS,
+  CASE_TYPES,
+  CASE_PRIORITIES,
+  CASE_STATUSES,
+  CASE_STATUS_TRANSITIONS,
+  PARTICIPATION_TYPES,
+  CASE_OFFICER_ROLES,
+  CASE_OFFICER_STATUSES,
+  TRANSFER_STATUSES,
+  CASE_EVENT_TYPES,
 } from "@/lib/constants";
 import { ROLE_PERMISSIONS } from "@/lib/permissions";
 
@@ -24,6 +33,16 @@ export async function GET(req: Request) {
       officerStatuses: OFFICER_STATUSES,
       officerStatusTransitions: OFFICER_STATUS_TRANSITIONS,
       rolePermissions: ROLE_PERMISSIONS,
+      // Phase 2 — case reference data (spec §6/§7/§8/§12/§13/§19)
+      caseTypes: CASE_TYPES,
+      casePriorities: CASE_PRIORITIES,
+      caseStatuses: CASE_STATUSES,
+      caseStatusTransitions: CASE_STATUS_TRANSITIONS,
+      participationTypes: PARTICIPATION_TYPES,
+      caseOfficerRoles: CASE_OFFICER_ROLES,
+      caseOfficerStatuses: CASE_OFFICER_STATUSES,
+      transferStatuses: TRANSFER_STATUSES,
+      caseEventTypes: CASE_EVENT_TYPES,
     });
   } catch (err) {
     return handleApiError(err);

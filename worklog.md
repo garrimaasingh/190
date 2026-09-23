@@ -41,3 +41,25 @@ Work Log:
 Stage Summary:
 - App is restored to a pristine, fully-working demo state; login UX hardened against typos; client resilient to transient 5xx.
 - Demo logins unchanged (password Demo@Pass1): sysadmin@, arjun.sharma@, meera.desai@, vishnu.kumar@, priya.nair@demo.gov.in.
+
+---
+Task ID: 3
+Agent: Super Z (main agent)
+Task: Phase 2 — Case Management & Custody Transfer (full implementation per Phase 2 spec)
+
+Work Log:
+- Reused Phase 1 stack per spec: Next.js 16 + Prisma/SQLite + Zod + bun:test; did NOT rebuild auth/org (requireAuth, resolveAndValidateGeoChain, jsonOk envelope, GeographicSelector, AppShell all reused).
+- Schema: added Case, CaseDepartment, CaseOfficer, CaseTransfer, CaseEvent (+ reverse relations on Phase 1 models). All FKs Restrict (no destructive cascade); version field for optimistic locking; indexes per spec §51. db push applied (SQLite — enums stay as validated strings in constants.ts, PostgreSQL-portable).
+- Libs: src/lib/cases/{ids,events,access,status,custody}.ts. Case IDs CASE-<STATE>-<DIST>-<YEAR>-<6digit> + TRF-* with retry-on-conflict; CaseStatusService (transition map, guarded update, status timestamps); CaseCustodyService (request/accept/reject/cancel via tx + guarded updateMany on status + case version swap; one-pending-transfer rule; stale-custody guard; participation promotion/demotion on accept); computeCaseAccess (SYSTEM_ADMIN manage, AUDITOR view-only, custodian dept admins manage, assigned custodian officers manage, participation read, destination-side review for pending transfers).
+- Permissions: case.read/create/update/status.update/officer.manage/department.manage/transfer.initiate/transfer.decide mapped to roles (AUDITOR read-only).
+- APIs (14 new routes): cases POST/GET (query-level authz filter), [caseId] GET/PATCH, status PATCH, officers GET/POST + [record] PATCH/DELETE, departments GET/POST + DELETE, transfers GET/POST + [transferId] GET + accept/reject/cancel POST, timeline GET, access GET, eligible-officers GET (case-scoped, purpose=assign|transfer), /transfers/incoming GET. Meta route extended with all case reference data.
+- Frontend: ViewKey + nav "Cases"; CasesView (directory + search/filters + incoming-transfer mailbox with accept/reject confirm §43), CaseCreateView (4 sections §40, cascading geo, review), CaseDashboardView (header, overview, custody, departments with ORIGINATING/CUSTODIAN/PARTICIPATING/HISTORICAL badges §27, officers table with role-change/unassign, custody history, timeline, Documents Phase-3 empty state §58, access explanation §26). Fixed during E2E: AddDepartmentDialog lacked a trigger button.
+- Seed: 6 demo cases (police custodian, FSL custodian after accepted transfer, prosecution custodian, closed, multi-participant, pending REQUESTED transfer TRF-MP-IND-2026-000003) + full event timelines; idempotent.
+- Tests: tests/api/phase2.test.ts — 77 tests (creation, authz matrix, lifecycle, officers, departments, custody incl. concurrent accept race [200/409], stale custody, reject/cancel flows, history/timeline, security: forged JWT/session, SQLi, XSS, mass assignment, CASE_ACCESS_DENIED event, search leak check). All pass. Phase 1 suite: 50/50 pass. Fixed during testing: receiving-officer FK resolution (public officerId → internal id), /access endpoint leaking to unauthorized callers (now 403).
+- E2E (agent-browser): full §64 scenario — police admin creates case via UI (CASE-MP-IND-2026-000007), assigns Vishnu as LEAD_INVESTIGATOR, adds FSL as PARTICIPATING, requests transfer (REQUESTED), Meera accepts from incoming mailbox → custodian becomes FSL, police retained as ORIGINATING, timeline shows all 5 events; Devika (unrelated dept) search returns 0 items; mobile 390px no overflow. Cleaned all E2E/test residue after (6 demo cases remain).
+- Note: login during E2E initially hit 429 rate limit (test suite bursts) — waited out window, expected behavior.
+
+Stage Summary:
+- Phase 2 COMPLETE: case container + custody model live and browser-verified; Phase 1 fully regression-green.
+- Demo: sysadmin@/arjun.sharma@/meera.desai@/vishnu.kumar@/priya.nair@demo.gov.in (Demo@Pass1); seeded cases CASE-MP-IND-2026-000001..000006 incl. pending transfer for accept-flow demo.
+- Deferred per spec §61: documents, evidence, OCR/AI, graph, blockchain ledger, printing, notifications delivery (event-backed abstraction only), transfer expiry scheduler (EXPIRED state reserved).
