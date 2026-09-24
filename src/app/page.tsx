@@ -20,6 +20,11 @@ import { CaseDashboardView } from "@/components/platform/views/CaseDashboardView
 import { DocumentUploadView, type RelatedWorkflow } from "@/components/platform/views/DocumentUploadView";
 import { DocumentDetailsView } from "@/components/platform/views/DocumentDetailsView";
 import { DocumentViewerView } from "@/components/platform/views/DocumentViewerView";
+import { EvidenceRegisterView } from "@/components/platform/views/EvidenceRegisterView";
+import { EvidenceDetailsView } from "@/components/platform/views/EvidenceDetailsView";
+import { AuditView, AuditDetailView } from "@/components/platform/views/AuditView";
+import { AuditIntegrityView } from "@/components/platform/views/AuditIntegrityView";
+import { ReportsView } from "@/components/platform/views/ReportsView";
 import { LoadingState, ErrorState } from "@/components/platform/common";
 import { ShieldAlert } from "lucide-react";
 
@@ -36,6 +41,8 @@ interface Navigation {
   officerId?: string;
   caseId?: string;
   documentId?: string;
+  evidenceId?: string;
+  eventId?: string;
   documentMode?: "details" | "view";
   relatedWorkflow?: RelatedWorkflow;
 }
@@ -108,6 +115,8 @@ function Shell() {
           onOpenDocument={(documentId, mode) =>
             setNav({ view: mode === "view" ? "case-document-view" : "case-document-detail", caseId: nav.caseId, documentId, documentMode: mode })
           }
+          onRegisterEvidence={() => setNav({ view: "case-evidence-register", caseId: nav.caseId })}
+          onOpenEvidence={(evidenceId) => setNav({ view: "case-evidence-detail", caseId: nav.caseId, evidenceId })}
         />
       ) : (
         <AccessDenied what="this page" />
@@ -229,6 +238,74 @@ function Shell() {
           <AccessDenied what="the identity event ledger" />
         ) : (
           <EventsView />
+        );
+      break;
+    case "case-evidence-register":
+      content =
+        role === "AUDITOR" ? (
+          <AccessDenied what="evidence registration" />
+        ) : nav.caseId ? (
+          <EvidenceRegisterView
+            caseRef={nav.caseId}
+            meta={meta}
+            onRegistered={(evidenceId) => setNav({ view: "case-evidence-detail", caseId: nav.caseId, evidenceId })}
+            onBack={() => setNav({ view: "case-detail", caseId: nav.caseId })}
+          />
+        ) : (
+          <AccessDenied what="this page" />
+        );
+      break;
+    case "case-evidence-detail":
+      content = nav.caseId && nav.evidenceId ? (
+        <EvidenceDetailsView
+          caseRef={nav.caseId}
+          evidenceId={nav.evidenceId}
+          meta={meta}
+          onBack={() => setNav({ view: "case-detail", caseId: nav.caseId })}
+          onOpenDocument={(documentId, mode) =>
+            setNav({ view: mode === "view" ? "case-document-view" : "case-document-detail", caseId: nav.caseId, documentId, documentMode: mode })
+          }
+        />
+      ) : (
+        <AccessDenied what="this page" />
+      );
+      break;
+    case "audit":
+      content =
+        role === "DEPARTMENT_ADMIN" || role === "OFFICER" ? (
+          <AccessDenied what="the audit ledger" />
+        ) : (
+          <AuditView
+            meta={meta}
+            onOpenEvent={(eventId) => setNav({ view: "audit-detail", eventId })}
+            onOpenIntegrity={() => navigate("audit-integrity")}
+          />
+        );
+      break;
+    case "audit-detail":
+      content =
+        role === "DEPARTMENT_ADMIN" || role === "OFFICER" ? (
+          <AccessDenied what="the audit ledger" />
+        ) : nav.eventId ? (
+          <AuditDetailView eventId={nav.eventId} onBack={() => navigate("audit")} />
+        ) : (
+          <AccessDenied what="this page" />
+        );
+      break;
+    case "audit-integrity":
+      content =
+        role === "DEPARTMENT_ADMIN" || role === "OFFICER" ? (
+          <AccessDenied what="audit integrity" />
+        ) : (
+          <AuditIntegrityView />
+        );
+      break;
+    case "reports":
+      content =
+        role === "OFFICER" ? (
+          <AccessDenied what="report generation" />
+        ) : (
+          <ReportsView />
         );
       break;
     default:

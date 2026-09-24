@@ -10,6 +10,10 @@ import { Readable } from "stream";
 // interface (put_object/get_object/delete_staged_object/
 // object_exists/stream_object) — never on a concrete SDK.
 //
+// PHASE 4 (spec §12): this is the platform's SecureObjectStorage —
+// DOCUMENT objects AND EVIDENCE objects live here under the same
+// principles. No second storage architecture exists.
+//
 // ACTIVE PROVIDER: LOCAL_ENCRYPTED_FS (development). The project
 // has no MinIO/S3 deployment, so Phase 3 ships a local encrypted-
 // filesystem provider behind the same interface; swapping in
@@ -18,6 +22,7 @@ import { Readable } from "stream";
 // SECURITY:
 // - Keys are OPAQUE and server-generated:
 //     cases/{case-internal-uuid}/documents/{uuid}/object
+//     evidence/{case-internal-uuid}/{uuid}/object
 //   User input NEVER contributes to a storage path (spec §16/§44).
 // - get/delete validate the key against the canonical shape —
 //   path traversal attempts are rejected before any FS access.
@@ -25,17 +30,27 @@ import { Readable } from "stream";
 //   the authorized streaming APIs (spec §31).
 // ============================================================
 
+// Root kept at db/uploads/documents since Phase 3 — EXISTING document
+// objects stay byte-addressable without migration; evidence objects
+// are namespaced by their `evidence/` key prefix under the same root.
 const STORAGE_ROOT = path.join(process.cwd(), "db", "uploads", "documents");
 
-/** Canonical key shape: cases/<id>/documents/<uuid>/object */
-const KEY_PATTERN = /^cases\/[A-Za-z0-9_-]+\/documents\/[0-9a-fA-F-]{36}\/object$/;
+/** Canonical key shapes: cases/<id>/documents/<uuid>/object and evidence/<caseId>/<uuid>/object */
+const KEY_PATTERNS = [
+  /^cases\/[A-Za-z0-9_-]+\/documents\/[0-9a-fA-F-]{36}\/object$/,
+  /^evidence\/[A-Za-z0-9_-]+\/[0-9a-fA-F-]{36}\/object$/,
+];
 
 export function buildStorageKey(caseInternalId: string, documentUuid: string): string {
   return `cases/${caseInternalId}/documents/${documentUuid}/object`;
 }
 
+export function buildEvidenceStorageKey(caseInternalId: string, evidenceUuid: string): string {
+  return `evidence/${caseInternalId}/${evidenceUuid}/object`;
+}
+
 function assertSafeKey(key: string): void {
-  if (!KEY_PATTERN.test(key)) {
+  if (!KEY_PATTERNS.some((p) => p.test(key))) {
     throw new Error(`Refusing unsafe storage key: ${key.slice(0, 64)}`);
   }
 }

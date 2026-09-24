@@ -697,6 +697,218 @@ async function main() {
     }
   }
 
+  // ===========================================================================
+  // PHASE 4 — demonstration evidence + genuine audit chain (spec §73).
+  // ALL data is synthetic. Evidence is seeded THROUGH THE REAL SERVICES
+  // (registerEvidence / changeEvidenceStatus / custody service /
+  // linkEvidenceDocument) so the audit hash chain from genesis is
+  // authentic — not fabricated rows.
+  // ===========================================================================
+  {
+    const evidenceCount = await db.evidence.count();
+    if (evidenceCount === 0) {
+      const { registerEvidence, changeEvidenceStatus } = await import("@/lib/evidence/service");
+      const { createEvidenceTransferRequest, decideEvidenceTransfer } = await import("@/lib/evidence/custody");
+      const { linkEvidenceDocument } = await import("@/lib/evidence/relationships");
+      const { permissionsForRole } = await import("@/lib/permissions");
+
+      const seedCtx = (officer: { id: string; officerId: string; name: string; email: string; phone: string | null; designation: string; role: string; status: string; departmentId: string }, department: { id: string; departmentCode: string; name: string; departmentType: string; status: string; stateId: string; districtId: string; cityId: string }) => ({
+        sessionId: `seed-${Math.random().toString(36).slice(2, 10)}`,
+        officer: { ...officer, lastLoginAt: null },
+        department,
+        permissions: permissionsForRole(officer.role),
+      });
+
+      const meeraCtx = seedCtx(meera, forensics);
+      const arjunCtx = seedCtx(arjun, police);
+      const rohanOfficer = await db.officer.findUniqueOrThrow({ where: { officerId: "OFF-MP-IND-00003" } });
+      const rohanCtx = seedCtx(rohanOfficer, prosecution);
+      const vishnuRef = vishnu.officerId;
+
+      // Case 2 needs prosecution as a participant so an evidence custody
+      // transfer FSL → Prosecution is a legal destination (spec §44 rule 4).
+      const case2 = await db.case.findUniqueOrThrow({ where: { caseId: "CASE-MP-IND-2026-000002" }, select: { id: true, caseId: true, status: true } });
+      const case1 = await db.case.findUniqueOrThrow({ where: { caseId: "CASE-MP-IND-2026-000001" }, select: { id: true, caseId: true, status: true } });
+      const prosecutionParticipation = await db.caseDepartment.findFirst({
+        where: { caseId: case2.id, departmentId: prosecution.id, status: "ACTIVE" },
+        select: { id: true },
+      });
+      if (!prosecutionParticipation) {
+        await addParticipation(case2.id, prosecution.id, "PARTICIPATING", 10);
+      }
+
+      // Synthetic 1x1 PNG (transparent) — a real, decodable image.
+      const pngBytes = Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+        "base64"
+      );
+      // Synthetic MP4: valid ISO-BMFF container header (ftyp box) — the
+      // bytes are a container skeleton, NOT playable media (synthetic demo).
+      const mp4Bytes = Buffer.concat([
+        Buffer.from([0x00, 0x00, 0x00, 0x18]),
+        Buffer.from("ftypmp42"),
+        Buffer.from([0x00, 0x00, 0x00, 0x00]),
+        Buffer.from("mp42isom"),
+        Buffer.from([0x00, 0x00, 0x00, 0x08]),
+        Buffer.from("free"),
+      ]);
+
+      const day = (d: number) => new Date(Date.now() - d * 86400000);
+
+      // ---- EVD-1: CCTV recording (DIGITAL/VIDEO) on case 2 --------------------
+      const evd1 = await registerEvidence({
+        ctx: meeraCtx,
+        caseRow: case2,
+        input: {
+          title: "CCTV Recording — Market Premises",
+          description: "DEMO: CCTV footage covering the market entrance around the incident window (synthetic container, not playable media).",
+          evidenceType: "VIDEO",
+          category: "CCTV footage",
+          classification: "RESTRICTED",
+          sourceType: "CCTV_SYSTEM",
+          sourceReference: "CAM-MP-IND-014 / DVR-7",
+          collectionLocation: "Market premises, MG Road, Indore",
+          collectedAt: day(14),
+          collectedByOfficerId: vishnuRef,
+          condition: "Original DVR export, unaltered",
+          notes: "Exported under seizure memo (demo).",
+          evidenceNumber: "SEIZ/2026/CC-014",
+          deviceMetadata: { dvrModel: "DVR-7", channels: "16" },
+        },
+        file: { buffer: mp4Bytes, originalFilename: "CCTV.mp4", declaredMimeType: "video/mp4" },
+      });
+      await changeEvidenceStatus({
+        ctx: meeraCtx,
+        caseRow: case2,
+        evidence: { id: (evd1.evidence as { id: string }).id, evidenceId: evd1.evidence.evidenceId, status: "REGISTERED", title: evd1.evidence.title },
+        requestedStatus: "IN_CUSTODY",
+        reason: "Logged into FSL digital evidence locker.",
+      });
+
+      // ---- EVD-2: seized mobile phone (physical DEVICE) on case 2 -------------
+      const evd2 = await registerEvidence({
+        ctx: meeraCtx,
+        caseRow: case2,
+        input: {
+          title: "Seized Mobile Phone — Samsung Galaxy M32",
+          description: "DEMO: handset seized from the accused; faraday-bagged on collection (physical item, no digital content stored).",
+          evidenceType: "DEVICE",
+          category: "Mobile handset",
+          classification: "CONFIDENTIAL",
+          sourceType: "POLICE_SEIZURE",
+          sourceReference: "SEIZ/2026/0117",
+          collectionLocation: "Indore, seizure site",
+          collectedAt: day(16),
+          collectedByOfficerId: vishnuRef,
+          condition: "Good; power off on receipt, bagged",
+          notes: "IMEI recorded on the seizure memo (demo).",
+          evidenceNumber: "SEIZ/2026/0117",
+          deviceMetadata: { manufacturer: "Samsung", model: "Galaxy M32", serialNumber: "DEMO-SN-0000001" },
+        },
+        file: null,
+      });
+      await changeEvidenceStatus({
+        ctx: meeraCtx,
+        caseRow: case2,
+        evidence: { id: (evd2.evidence as { id: string }).id, evidenceId: evd2.evidence.evidenceId, status: "REGISTERED", title: evd2.evidence.title },
+        requestedStatus: "IN_CUSTODY",
+        reason: "Stored in FSL physical evidence locker.",
+      });
+
+      // ---- EVD-3: scene photograph (DIGITAL/IMAGE) on case 2 ------------------
+      await registerEvidence({
+        ctx: meeraCtx,
+        caseRow: case2,
+        input: {
+          title: "Scene Photograph — Device Packaging",
+          description: "DEMO: photograph of the sealed device packaging at receipt (1x1 synthetic PNG).",
+          evidenceType: "IMAGE",
+          category: "Scene photograph",
+          classification: "INTERNAL",
+          sourceType: "FORENSIC_LAB",
+          sourceReference: "FSL/PH/2026/0091",
+          collectionLocation: "FSL receiving bay",
+          collectedAt: day(11),
+          condition: "N/A — photograph",
+        },
+        file: { buffer: pngBytes, originalFilename: "scene-photo.png", declaredMimeType: "image/png" },
+      });
+
+      // ---- EVD-4: seized hard disk (physical DEVICE) on case 1 ----------------
+      const evd4 = await registerEvidence({
+        ctx: arjunCtx,
+        caseRow: case1,
+        input: {
+          title: "Seized Hard Disk Drive — 1TB",
+          description: "DEMO: internal HDD seized from the office workstation (physical item; forensic imaging handled offline in this demo).",
+          evidenceType: "DEVICE",
+          category: "Storage media",
+          classification: "RESTRICTED",
+          sourceType: "POLICE_SEIZURE",
+          sourceReference: "SEIZ/2026/0098",
+          collectionLocation: "Office premises, Palasia Square, Indore",
+          collectedAt: day(24),
+          collectedByOfficerId: vishnuRef,
+          condition: "Sealed evidence bag, no visible damage",
+          evidenceNumber: "SEIZ/2026/0098",
+          deviceMetadata: { manufacturer: "Seagate", capacity: "1TB", serialNumber: "DEMO-SN-0000002" },
+        },
+        file: null,
+      });
+      await changeEvidenceStatus({
+        ctx: arjunCtx,
+        caseRow: case1,
+        evidence: { id: (evd4.evidence as { id: string }).id, evidenceId: evd4.evidence.evidenceId, status: "REGISTERED", title: evd4.evidence.title },
+        requestedStatus: "IN_CUSTODY",
+        reason: "Stored in police malkhana locker B.",
+      });
+
+      // ---- Evidence-document relationship (spec §20): forensic report DESCRIBES
+      //      the seized disk (both belong to case 1) ----------------------------
+      const forensicDoc = await db.caseDocument.findUnique({ where: { documentId: "DOC-MP-IND-2026-000003" }, select: { id: true, documentId: true } });
+      if (forensicDoc) {
+        await linkEvidenceDocument({
+          ctx: arjunCtx,
+          access: { level: "manage", view: true, manage: true, isCustodianSide: true, isOriginSide: true, assigned: false, reasons: ["seed"] },
+          caseRow: case1,
+          evidence: { id: (evd4.evidence as { id: string }).id, evidenceId: evd4.evidence.evidenceId, classification: "RESTRICTED" },
+          input: { documentId: forensicDoc.documentId, relationshipType: "DESCRIBES", note: "FSL examination report for the seized disk." },
+        });
+      }
+
+      // ---- Custody transfer with full history (spec §73 steps 10-13):
+      //      CCTV recording FSL → Prosecution, requested by meera, accepted
+      //      by Rohan Verma (Prosecution DEPARTMENT_ADMIN) via the REAL
+      //      custody service — audit events chained in the same transactions.
+      await createEvidenceTransferRequest({
+        ctx: meeraCtx,
+        caseRow: case2,
+        evidence: {
+          id: (evd1.evidence as { id: string }).id,
+          evidenceId: evd1.evidence.evidenceId,
+          title: evd1.evidence.title,
+          status: "IN_CUSTODY",
+          currentCustodianDepartmentId: forensics.id,
+        },
+        input: {
+          toDepartmentId: prosecution.id,
+          toOfficerId: rohanOfficer.officerId,
+          reason: "Footage required for trial preparation by the prosecution team.",
+          notes: "Chain-of-custody demo transfer (seed).",
+        },
+      });
+      const pendingTransfer = await db.evidenceTransfer.findFirst({
+        where: { evidenceId: (evd1.evidence as { id: string }).id, status: "REQUESTED" },
+        select: { transferId: true },
+      });
+      if (pendingTransfer) {
+        await decideEvidenceTransfer({ ctx: rohanCtx, transferRef: pendingTransfer.transferId, action: "ACCEPT" });
+      }
+
+      console.log("  Evidence   : 4 demo items (2 digital, 2 physical; 1 accepted custody transfer; 1 document relationship)");
+    }
+  }
+
   console.log("============================================================");
   console.log("Phase 1 + Phase 2 seed complete  [DEMO / DEVELOPMENT DATA]");
   console.log(`  Country : ${india.name} (${india.code})`);

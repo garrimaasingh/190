@@ -13,7 +13,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { LayoutDashboard, Network, Building2, Users, ScrollText, UserCircle, Settings as SettingsIcon, Menu, LogOut, ShieldCheck, FolderSearch } from "lucide-react";
+import { LayoutDashboard, Network, Building2, Users, ScrollText, UserCircle, Settings as SettingsIcon, Menu, LogOut, ShieldCheck, FolderSearch, Boxes, Scale, FileCheck2, ShieldEllipsis } from "lucide-react";
 
 // ============================================================
 // AppShell (spec §20/§53): role-aware sidebar + topbar.
@@ -28,6 +28,8 @@ export type ViewKey =
   | "case-document-upload"
   | "case-document-detail"
   | "case-document-view"
+  | "case-evidence-register"
+  | "case-evidence-detail"
   | "organization"
   | "departments"
   | "department-register"
@@ -36,7 +38,11 @@ export type ViewKey =
   | "officer-detail"
   | "profile"
   | "settings"
-  | "events";
+  | "events"
+  | "audit"
+  | "audit-detail"
+  | "audit-integrity"
+  | "reports";
 
 export interface NavItem {
   key: ViewKey;
@@ -54,6 +60,9 @@ const NAV: NavItem[] = [
   { key: "department-profile", label: "My Department", icon: <Building2 size={18} aria-hidden />, roles: ["DEPARTMENT_ADMIN", "OFFICER"] },
   { key: "officers", label: "Officers", icon: <Users size={18} aria-hidden />, roles: ["SYSTEM_ADMIN", "DEPARTMENT_ADMIN", "AUDITOR"] },
   { key: "events", label: "Identity Events", icon: <ScrollText size={18} aria-hidden />, roles: ["SYSTEM_ADMIN", "AUDITOR"] },
+  { key: "audit", label: "Audit Log", icon: <Scale size={18} aria-hidden />, roles: ["SYSTEM_ADMIN", "AUDITOR"] },
+  { key: "audit-integrity", label: "Audit Integrity", icon: <ShieldEllipsis size={18} aria-hidden />, roles: ["SYSTEM_ADMIN", "AUDITOR"] },
+  { key: "reports", label: "Reports", icon: <FileCheck2 size={18} aria-hidden />, roles: ["SYSTEM_ADMIN", "AUDITOR", "DEPARTMENT_ADMIN"] },
   { key: "profile", label: "My Profile", icon: <UserCircle size={18} aria-hidden />, roles: ["SYSTEM_ADMIN", "DEPARTMENT_ADMIN", "OFFICER", "AUDITOR"] },
   { key: "settings", label: "Settings", icon: <SettingsIcon size={18} aria-hidden />, roles: ["SYSTEM_ADMIN", "DEPARTMENT_ADMIN", "OFFICER", "AUDITOR"] },
 ];

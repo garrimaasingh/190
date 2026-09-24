@@ -26,6 +26,18 @@ import {
   DOCUMENT_EVENT_TYPES,
   DOCUMENT_ALLOWED_EXTENSIONS,
   DOCUMENT_MAX_SIZE_MB,
+  EVIDENCE_TYPES,
+  EVIDENCE_SOURCE_TYPES,
+  EVIDENCE_STATUSES,
+  EVIDENCE_STATUS_TRANSITIONS,
+  EVIDENCE_CLASSIFICATIONS,
+  EVIDENCE_CLASSIFICATION_NOTES,
+  EVIDENCE_RELATIONSHIP_TYPES,
+  EVIDENCE_RELATIONSHIP_NOTES,
+  AUDIT_EVENT_TYPES,
+  AUDIT_EVENT_CATEGORIES,
+  LEDGER_ADAPTERS,
+  LEDGER_ACTIVE_ADAPTER,
 } from "@/lib/constants";
 import { ROLE_PERMISSIONS } from "@/lib/permissions";
 
@@ -66,6 +78,19 @@ export async function GET(req: Request) {
         maxSizeMb: DOCUMENT_MAX_SIZE_MB,
         allowedExtensions: Object.keys(DOCUMENT_ALLOWED_EXTENSIONS),
       },
+      // Phase 4 — evidence & audit reference data (spec §6-§9/§20/§33/§60)
+      evidenceTypes: EVIDENCE_TYPES,
+      evidenceSourceTypes: EVIDENCE_SOURCE_TYPES,
+      evidenceStatuses: EVIDENCE_STATUSES,
+      evidenceStatusTransitions: EVIDENCE_STATUS_TRANSITIONS,
+      evidenceClassifications: EVIDENCE_CLASSIFICATIONS,
+      evidenceClassificationNotes: EVIDENCE_CLASSIFICATION_NOTES,
+      evidenceRelationshipTypes: EVIDENCE_RELATIONSHIP_TYPES,
+      evidenceRelationshipNotes: EVIDENCE_RELATIONSHIP_NOTES,
+      auditEventTypes: AUDIT_EVENT_TYPES,
+      auditEventCategories: AUDIT_EVENT_CATEGORIES,
+      ledgerAdapters: LEDGER_ADAPTERS,
+      ledgerActiveAdapter: LEDGER_ACTIVE_ADAPTER,
     });
   } catch (err) {
     return handleApiError(err);

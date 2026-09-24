@@ -126,18 +126,57 @@ export async function generateDocumentId(geo: IdGeo, year: number): Promise<stri
   );
 }
 
+// ------------------------------------------------------------
+// PHASE 4 — evidence identity (spec §4): EVD-<STATE>-<DIST>-
+// <YEAR>-<000001>, backend-generated, immutable, NEVER a filename
+// or external reference. Evidence transfers: ETR-*. Ledger anchors
+// are not geo-scoped: ANCHOR-<YEAR>-<000001>.
+// ------------------------------------------------------------
+
 export async function generateEvidenceId(geo: IdGeo, year: number): Promise<string> {
-  const prefix = `EV-${stateFragment(geo)}-${districtFragment(geo)}-${year}-`;
+  const prefix = `EVD-${stateFragment(geo)}-${districtFragment(geo)}-${year}-`;
   return nextSequenceId(
     prefix,
     6,
     async () =>
       (
-        await db.evidenceItem.findMany({
+        await db.evidence.findMany({
           where: { evidenceId: { startsWith: prefix } },
           select: { evidenceId: true },
         })
       ).map((r) => r.evidenceId),
-    async (candidate) => !!(await db.evidenceItem.findUnique({ where: { evidenceId: candidate } }))
+    async (candidate) => !!(await db.evidence.findUnique({ where: { evidenceId: candidate } }))
+  );
+}
+
+export async function generateEvidenceTransferId(geo: IdGeo, year: number): Promise<string> {
+  const prefix = `ETR-${stateFragment(geo)}-${districtFragment(geo)}-${year}-`;
+  return nextSequenceId(
+    prefix,
+    6,
+    async () =>
+      (
+        await db.evidenceTransfer.findMany({
+          where: { transferId: { startsWith: prefix } },
+          select: { transferId: true },
+        })
+      ).map((r) => r.transferId),
+    async (candidate) => !!(await db.evidenceTransfer.findUnique({ where: { transferId: candidate } }))
+  );
+}
+
+export async function generateAnchorId(year: number): Promise<string> {
+  const prefix = `ANCHOR-${year}-`;
+  return nextSequenceId(
+    prefix,
+    6,
+    async () =>
+      (
+        await db.ledgerAnchor.findMany({
+          where: { anchorId: { startsWith: prefix } },
+          select: { anchorId: true },
+        })
+      ).map((r) => r.anchorId),
+    async (candidate) => !!(await db.ledgerAnchor.findUnique({ where: { anchorId: candidate } }))
   );
 }

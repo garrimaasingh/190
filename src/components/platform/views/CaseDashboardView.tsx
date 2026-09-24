@@ -19,6 +19,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { StatusBadge } from "@/components/platform/common";
 import { EmptyState, ErrorState, LoadingState, FieldError } from "@/components/platform/common";
 import { DocumentsSection } from "@/components/platform/DocumentsSection";
+import { EvidenceSection } from "@/components/platform/EvidenceSection";
+import type { CaseIntegritySummary } from "@/lib/client/api";
 import { PriorityBadge } from "@/components/platform/views/CasesView";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -57,12 +59,23 @@ function fmtDate(d: string | null | undefined): string {
   return d ? new Date(d).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "—";
 }
 
-export function CaseDashboardView({ caseRef, onBack, onUploadDocument, onOpenDocument }: { caseRef: string; onBack: () => void; onUploadDocument: () => void; onOpenDocument: (documentId: string, mode: "details" | "view") => void }) {
+export function CaseDashboardView({ caseRef, onBack, onUploadDocument, onOpenDocument, onRegisterEvidence, onOpenEvidence }: { caseRef: string; onBack: () => void; onUploadDocument: () => void; onOpenDocument: (documentId: string, mode: "details" | "view") => void; onRegisterEvidence: () => void; onOpenEvidence: (evidenceId: string) => void }) {
   const { me, meta } = useAuth();
   const [detail, setDetail] = React.useState<CaseDetail | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [actionError, setActionError] = React.useState<string | null>(null);
+  // Phase 4 §62: informational integrity summary (documents/evidence/audit/chain).
+  const [integrity, setIntegrity] = React.useState<CaseIntegritySummary | null>(null);
+
+  React.useEffect(() => {
+    let alive = true;
+    api
+      .get<CaseIntegritySummary>(`/api/v1/cases/${caseRef}/integrity`)
+      .then((s) => { if (alive) setIntegrity(s); })
+      .catch(() => { /* informational only */ });
+    return () => { alive = false; };
+  }, [caseRef]);
 
   // dialog state
   const [transferOpen, setTransferOpen] = React.useState(false);
@@ -414,6 +427,42 @@ export function CaseDashboardView({ caseRef, onBack, onUploadDocument, onOpenDoc
         onUpload={onUploadDocument}
         onOpenDocument={onOpenDocument}
       />
+
+      {/* ---------- EVIDENCE (Phase 4, spec §37) ---------- */}
+      <EvidenceSection
+        caseRef={caseRef}
+        meta={meta}
+        onRegister={onRegisterEvidence}
+        onOpenEvidence={onOpenEvidence}
+      />
+
+      {/* ---------- INTEGRITY SUMMARY (Phase 4, spec §62) ---------- */}
+      {integrity && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <ShieldCheck size={16} className={integrity.chain.valid ? "text-emerald-600" : "text-red-600"} aria-hidden /> Integrity
+            </CardTitle>
+            <CardDescription>Informational summary of this case&apos;s records and the audit chain state.</CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-wrap gap-x-8 gap-y-2 text-sm">
+            <p><span className="text-muted-foreground">Documents:</span> <span className="font-medium">{integrity.documents}</span></p>
+            <p><span className="text-muted-foreground">Evidence:</span> <span className="font-medium">{integrity.evidence}</span></p>
+            <p>
+              <span className="text-muted-foreground">Audit events:</span>{" "}
+              <span className="font-medium">{integrity.auditEvents ?? "—"}</span>
+              {integrity.auditEventsNote && <span className="block text-xs text-muted-foreground">{integrity.auditEventsNote}</span>}
+            </p>
+            <p><span className="text-muted-foreground">Custody transfers:</span> <span className="font-medium">{integrity.custodyTransfers}</span></p>
+            <p>
+              <span className="text-muted-foreground">Chain:</span>{" "}
+              <Badge variant="outline" className={integrity.chain.valid ? "border-emerald-300 bg-emerald-50 text-emerald-900" : "border-red-300 bg-red-50 text-red-900"}>
+                {integrity.chain.valid ? "VALID" : "INVALID"}
+              </Badge>
+            </p>
+          </CardContent>
+        </Card>
+      )}
 
       {/* ---------- ACCESS (spec §14) ---------- */}
       <Card>

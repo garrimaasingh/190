@@ -17,6 +17,18 @@ import {
   DOCUMENT_REFERENCE_MAX_LENGTH,
   DOCUMENT_TAG_MAX_LENGTH,
   DOCUMENT_TAGS_MAX_COUNT,
+  EVIDENCE_TYPES,
+  EVIDENCE_SOURCE_TYPES,
+  EVIDENCE_CLASSIFICATIONS,
+  EVIDENCE_TITLE_MAX_LENGTH,
+  EVIDENCE_DESCRIPTION_MAX_LENGTH,
+  EVIDENCE_LOCATION_MAX_LENGTH,
+  EVIDENCE_NOTES_MAX_LENGTH,
+  EVIDENCE_CATEGORY_MAX_LENGTH,
+  EVIDENCE_NUMBER_MAX_LENGTH,
+  EVIDENCE_SOURCE_REFERENCE_MAX_LENGTH,
+  EVIDENCE_CONDITION_MAX_LENGTH,
+  EVIDENCE_RELATIONSHIP_TYPES,
 } from "@/lib/constants";
 
 // ============================================================
@@ -293,6 +305,99 @@ export const documentListQuerySchema = z.object({
   status: z.string().optional(),
   departmentId: z.string().optional(),
   uploadedBy: z.string().optional(),
+  dateFrom: z.string().trim().optional(),
+  dateTo: z.string().trim().optional(),
+  page: z.coerce.number().int().min(1).optional().default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).optional().default(20),
+});
+
+// ============================================================
+// PHASE 4 — evidence schemas (spec §5/§10/§38).
+// Server-controlled fields (registeredByOfficerId, sha256Hash,
+// storageKey, status, committedAt, currentCustodian*) are NOT part
+// of any client schema — .strict() rejects smuggling attempts.
+// The registering actor and custodian are derived server-side.
+// ============================================================
+
+// Optional device/acquisition metadata (spec §10): bounded keys,
+// string values — explicitly NOT claimed available for every type.
+const evidenceDeviceMetadataSchema = z
+  .record(z.string().trim().min(1).max(40).regex(/^[A-Za-z0-9 _.-]+$/), z.string().trim().max(200).regex(/^[^<>{}"']*$/))
+  .refine((obj) => Object.keys(obj).length <= 12, "At most 12 device metadata entries.")
+  .optional();
+
+export const evidenceRegisterSchema = z
+  .object({
+    title: z.string().trim().min(2, "Evidence title is required.").max(EVIDENCE_TITLE_MAX_LENGTH),
+    description: z.string().trim().max(EVIDENCE_DESCRIPTION_MAX_LENGTH).optional().or(z.literal("")),
+    evidenceType: z.enum(EVIDENCE_TYPES),
+    category: z.string().trim().max(EVIDENCE_CATEGORY_MAX_LENGTH).optional().or(z.literal("")),
+    classification: z.enum(EVIDENCE_CLASSIFICATIONS),
+    sourceType: z.enum(EVIDENCE_SOURCE_TYPES),
+    sourceReference: z.string().trim().max(EVIDENCE_SOURCE_REFERENCE_MAX_LENGTH).optional().or(z.literal("")),
+    collectionLocation: z.string().trim().max(EVIDENCE_LOCATION_MAX_LENGTH).optional().or(z.literal("")),
+    collectedAt: z.coerce.date().optional(),
+    collectedByOfficerId: z.string().trim().max(60).optional().or(z.literal("")),
+    condition: z.string().trim().max(EVIDENCE_CONDITION_MAX_LENGTH).optional().or(z.literal("")),
+    notes: z.string().trim().max(EVIDENCE_NOTES_MAX_LENGTH).optional().or(z.literal("")),
+    evidenceNumber: z.string().trim().max(EVIDENCE_NUMBER_MAX_LENGTH).optional().or(z.literal("")),
+    deviceMetadata: evidenceDeviceMetadataSchema,
+  })
+  .strict();
+
+export const evidenceStatusChangeSchema = z
+  .object({
+    status: z.enum(["REGISTERED", "COLLECTED", "IN_CUSTODY", "UNDER_EXAMINATION", "RETURNED", "RELEASED", "ARCHIVED"]),
+    reason: z.string().trim().max(EVIDENCE_NOTES_MAX_LENGTH).optional().or(z.literal("")),
+  })
+  .strict();
+
+export const evidenceTransferCreateSchema = z
+  .object({
+    toDepartmentId: z.string().trim().min(1),
+    toOfficerId: z.string().trim().optional().or(z.literal("")).transform((v) => (v ? v : undefined)),
+    reason: z.string().trim().min(4, "A reason is required for the evidence transfer.").max(1000),
+    notes: z.string().trim().max(2000).optional().or(z.literal("")).transform((v) => (v ? v : undefined)),
+  })
+  .strict();
+
+export const evidenceTransferDecisionSchema = z
+  .object({
+    action: z.enum(["ACCEPT", "REJECT", "CANCEL"]),
+  })
+  .strict();
+
+export const evidenceRelationshipSchema = z
+  .object({
+    documentId: z.string().trim().min(4).max(60),
+    relationshipType: z.enum(EVIDENCE_RELATIONSHIP_TYPES),
+    note: z.string().trim().max(300).optional().or(z.literal("")),
+  })
+  .strict();
+
+export const evidenceListQuerySchema = z.object({
+  q: z.string().trim().max(120).optional(),
+  type: z.string().optional(),
+  classification: z.string().optional(),
+  status: z.string().optional(),
+  custodianDepartmentId: z.string().optional(),
+  dateFrom: z.string().trim().optional(),
+  dateTo: z.string().trim().optional(),
+  page: z.coerce.number().int().min(1).optional().default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).optional().default(20),
+});
+
+export const auditSearchQuerySchema = z.object({
+  q: z.string().trim().max(120).optional(), // free-text over event id / case / doc / evidence ids
+  eventId: z.string().trim().max(60).optional(),
+  eventType: z.string().optional(),
+  category: z.string().optional(),
+  caseId: z.string().trim().max(60).optional(),
+  documentId: z.string().trim().max(60).optional(),
+  evidenceId: z.string().trim().max(60).optional(),
+  actorOfficerId: z.string().trim().max(60).optional(),
+  departmentId: z.string().trim().max(60).optional(),
+  result: z.string().optional(),
   dateFrom: z.string().trim().optional(),
   dateTo: z.string().trim().optional(),
   page: z.coerce.number().int().min(1).optional().default(1),

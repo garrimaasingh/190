@@ -5,6 +5,7 @@ import { loginSchema } from "@/lib/validation";
 import { verifyPassword, issueSession, sessionCookieOptions, clientIp } from "@/lib/auth";
 import { rateLimit } from "@/lib/rate-limit";
 import { recordIdentityEvent, IDENTITY_EVENTS } from "@/lib/events";
+import { recordAuditEvent } from "@/lib/audit/service";
 import { SESSION_COOKIE, AUTH_ALLOWED_STATUSES } from "@/lib/constants";
 
 export const runtime = "nodejs";
@@ -57,6 +58,16 @@ export async function POST(req: Request) {
         userAgent,
         metadata: { reason: officer ? "BAD_PASSWORD" : "UNKNOWN_EMAIL" },
       });
+      // Phase 4: authentication failures enter the immutable audit chain
+      // (spec §22) — no resolved actor, attempted identity recorded only.
+      await recordAuditEvent({
+        eventType: "LOGIN_FAILED",
+        actorIdentifier: email,
+        ipAddress: ip,
+        userAgent,
+        result: "DENIED",
+        metadata: { reason: officer ? "BAD_PASSWORD" : "UNKNOWN_EMAIL" },
+      });
       // identical response for unknown email and wrong password
       throw new ApiError(401, "INVALID_CREDENTIALS", "Invalid email or password.");
     }
@@ -89,6 +100,18 @@ export async function POST(req: Request) {
       ipAddress: ip,
       userAgent,
       metadata: { sessionId },
+    });
+
+    // Phase 4: successful logins are chained into the immutable audit
+    // ledger with session + request context (spec §22/§50).
+    await recordAuditEvent({
+      eventType: "LOGIN_SUCCESS",
+      actorOfficerId: officer.id,
+      actorDepartmentId: officer.departmentId,
+      sessionId,
+      ipAddress: ip,
+      userAgent,
+      metadata: { role: officer.role },
     });
 
     const response = jsonOk({

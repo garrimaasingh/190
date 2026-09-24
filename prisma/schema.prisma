@@ -97,9 +97,10 @@ model Department {
   transfersAsFrom    CaseTransfer[]   @relation("transferFrom")
   transfersAsTo      CaseTransfer[]   @relation("transferTo")
   departmentDocuments CaseDocument[]  @relation("documentUploaderDepartment")
-  evidenceCustodyOf  EvidenceItem[]           @relation("evidenceCustodian")
-  evidenceCustodyFrom EvidenceCustodyEvent[] @relation("evidenceCustodyFrom")
-  evidenceCustodyTo  EvidenceCustodyEvent[]   @relation("evidenceCustodyTo")
+  evidenceCustodianOf     Evidence[]          @relation("evidenceCustodian")
+  evidenceCollectedOf     Evidence[]          @relation("evidenceCollectingDept")
+  evidenceTransfersFrom   EvidenceTransfer[]  @relation("evidenceTransferFrom")
+  evidenceTransfersTo     EvidenceTransfer[]  @relation("evidenceTransferTo")
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
 
@@ -135,9 +136,15 @@ model Officer {
   documentsUploaded       CaseDocument[] @relation("documentUploader")
   documentRelCreators     DocumentRelationship[]  @relation("documentRelationshipCreator")
   documentUploadSessions  DocumentUploadSession[] @relation("documentUploadSessionActor")
-  evidenceCollected       EvidenceItem[] @relation("evidenceCollector")
-  evidenceRegistered      EvidenceItem[] @relation("evidenceRegistrar")
-  evidenceCustodyActions  EvidenceCustodyEvent[] @relation("evidenceCustodyActor")
+  evidenceCollected        Evidence[]                     @relation("evidenceCollector")
+  evidenceRegistered       Evidence[]                     @relation("evidenceRegistrar")
+  evidenceCustodianOf      Evidence[]                     @relation("evidenceCustodianOfficer")
+  evidenceTransfersRequestedBy EvidenceTransfer[]         @relation("evidenceTransferRequestedBy")
+  evidenceTransfersAcceptedBy  EvidenceTransfer[]         @relation("evidenceTransferAcceptedBy")
+  evidenceTransfersFromOfficer EvidenceTransfer[]         @relation("evidenceTransferFromOfficer")
+  evidenceTransfersToOfficer   EvidenceTransfer[]         @relation("evidenceTransferToOfficer")
+  evidenceRelCreators      EvidenceDocumentRelationship[] @relation("evidenceRelationshipCreator")
+  auditEventsActed         AuditEvent[]                   @relation("auditEventActor")
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
 
@@ -232,7 +239,8 @@ model Case {
   events                        CaseEvent[]
   documents                     CaseDocument[]
   documentUploadSessions        DocumentUploadSession[]
-  evidenceItems                 EvidenceItem[]
+  evidence                      Evidence[]
+  evidenceTransfers             EvidenceTransfer[]
 
   createdAt                     DateTime  @default(now())
   updatedAt                     DateTime  @updatedAt
@@ -427,6 +435,7 @@ model CaseDocument {
 
   relationshipsAsSource DocumentRelationship[] @relation("docRelationshipSource")
   relationshipsAsTarget DocumentRelationship[] @relation("docRelationshipTarget")
+  evidenceRelationships EvidenceDocumentRelationship[] @relation("evidenceRelationshipDocument")
   events                DocumentEvent[]
 
   createdAt              DateTime  @default(now()) // uploaded at
@@ -510,74 +519,272 @@ model DocumentUploadSession {
 }
 
 // ============================================================
-// EVIDENCE: physical/digital items with a full chain of custody.
-// The item's current* fields are maintained ONLY by the evidence
-// custody service — every change writes an EvidenceCustodyEvent
-// row in the same transaction (audit-first, like CaseTransfer).
-// Controllers must never mutate custody fields directly.
+// PHASE 4 — Evidence & chain of custody (spec §3/§5/§15/§16).
+//
+// EVIDENCE ≠ DOCUMENT (spec §3/§46): a document describes
+// something; evidence IS the item being handled (device, sample,
+// recording, artifact). Both hang off the CASE.
+//
+// IMMUTABILITY MODEL: after commit, sha256Hash, hashAlgorithm,
+// storageKey, storageProvider and the custody HISTORY are frozen —
+// no API mutates them and evidence is never hard-deleted.
+// Custody changes flow ONLY through EvidenceCustodyService
+// (transfer request → accept → custody swap + events in ONE
+// transaction); controllers never touch currentCustodian* fields
+// (spec §17). Evidence custody is INDEPENDENT of case custody
+// (spec §45) — transferring a case never moves its evidence.
+//
+// PHYSICAL vs DIGITAL (spec §11): physical evidence has no binary
+// (hasDigitalContent=false, storage fields null). Digital evidence
+// follows the Phase 3 two-phase pipeline: validate → scan →
+// SHA-256 (plaintext) → AES-256-GCM encrypt → store via the SAME
+// DocumentStorage abstraction (spec §12) → commit row + custody +
+// audit atomically.
 // ============================================================
 
-model EvidenceItem {
+model Evidence {
   id                          String    @id @default(cuid())
-  evidenceId                  String    @unique // public identity: EV-MP-IND-2026-000001
+  evidenceId                  String    @unique // public identity: EVD-MP-IND-2026-000001 (backend-generated, immutable)
   caseId                      String
   case                        Case      @relation(fields: [caseId], references: [id], onDelete: Restrict)
 
+  // descriptive metadata
+  evidenceNumber              String?   // external reference (seizure memo no., exhibit tag) — never the system identity
   title                       String
   description                 String?
-  evidenceType                String
-  status                      String    @default("REGISTERED")
+  evidenceType                String    // EVIDENCE_TYPES registry (spec §6)
+  category                    String?   // free-text subcategory (extensible, spec §6)
+  status                      String    @default("REGISTERED") // EVIDENCE_STATUSES (spec §8), transitions controlled
+  classification              String    // EVIDENCE_CLASSIFICATIONS (spec §9) — drives authorization
+
+  // acquisition (spec §10)
+  sourceType                  String    // EVIDENCE_SOURCE_TYPES registry (spec §7)
+  sourceReference             String?
+  collectionLocation          String?
+  collectedAt                 DateTime?
+  receivedAt                  DateTime?
+  condition                   String?
+  notes                       String?
+  deviceMetadata              String?   // optional JSON (manufacturer/model/serial/gps) — NOT claimed available for every type
 
   collectedByOfficerId        String?
   collectedByOfficer          Officer?  @relation("evidenceCollector", fields: [collectedByOfficerId], references: [id], onDelete: SetNull)
-  collectedAt                 DateTime?
+  collectingDepartmentId      String
+  collectingDepartment        Department @relation("evidenceCollectingDept", fields: [collectingDepartmentId], references: [id], onDelete: Restrict)
 
+  // custody — maintained ONLY by EvidenceCustodyService (spec §17)
   currentCustodianDepartmentId String?
   currentCustodianDepartment  Department? @relation("evidenceCustodian", fields: [currentCustodianDepartmentId], references: [id], onDelete: SetNull)
-  currentLocation             String?
+  currentCustodianOfficerId   String?
+  currentCustodianOfficer     Officer?  @relation("evidenceCustodianOfficer", fields: [currentCustodianOfficerId], references: [id], onDelete: SetNull)
 
+  // digital content (spec §11/§13/§14) — frozen after commit
+  hasDigitalContent           Boolean   @default(false)
+  originalFilename            String?   // metadata only, never a storage path
+  mimeType                    String?   // server-detected via magic bytes
+  fileSize                    Int?
+  storageProvider             String?   // STORAGE_PROVIDERS registry
+  storageKey                  String?   // opaque: evidence/{case-uuid}/{uuid}/object — NEVER exposed to clients (spec §5)
+  sha256Hash                  String?   // integrity fingerprint over PLAINTEXT, pre-encryption
+  hashAlgorithm               String    @default("SHA-256") // stored explicitly (spec §14) — architecture allows evolution
+  encryptionStatus            String?
+  keyReference                String?   // non-secret key version label
+
+  // origin — derived server-side, frozen after commit
   registeredByOfficerId       String
   registeredByOfficer         Officer   @relation("evidenceRegistrar", fields: [registeredByOfficerId], references: [id], onDelete: Restrict)
   registeredByDepartmentId    String
 
-  removedByOfficerId          String?
-  removedAt                   DateTime?
-  removalReason               String?
-
-  custodyEvents               EvidenceCustodyEvent[]
+  version                     Int       @default(1) // optimistic concurrency for custody swaps
+  committedAt                 DateTime?
   createdAt                   DateTime  @default(now())
   updatedAt                   DateTime  @updatedAt
 
+  transfers                   EvidenceTransfer[]
+  documentRelationships       EvidenceDocumentRelationship[]
+
   @@index([caseId])
+  @@index([caseId, status])
   @@index([evidenceType])
   @@index([status])
+  @@index([classification])
   @@index([currentCustodianDepartmentId])
+  @@index([collectingDepartmentId])
+  @@index([registeredByOfficerId])
   @@index([registeredByDepartmentId])
+  @@index([sha256Hash]) // duplicate awareness — NOT a business identifier
   @@index([createdAt])
 }
 
-model EvidenceCustodyEvent {
-  id                String       @id @default(cuid())
-  evidenceItemId    String
-  evidenceItem      EvidenceItem @relation(fields: [evidenceItemId], references: [id], onDelete: Restrict)
+// Custody transfer record (spec §16). REQUESTED → ACCEPTED is the
+// only path that changes current custody; REJECTED/CANCELLED leave
+// it untouched (spec §17/§44). Decided transfers are HISTORICAL —
+// they can never be edited or deleted (SQLite guards + no API).
+model EvidenceTransfer {
+  id                    String    @id @default(cuid())
+  transferId            String    @unique // public identity: ETR-MP-IND-2026-000001
+  evidenceId            String    // internal Evidence.id
+  evidence              Evidence  @relation(fields: [evidenceId], references: [id], onDelete: Restrict)
+  caseId                String
+  case                  Case      @relation(fields: [caseId], references: [id], onDelete: Restrict)
 
-  action            String       // COLLECTED | STORED | TRANSFERRED | SUBMITTED | RECEIVED | EXAMINED | RETURNED | CONSUMED
-  itemStatusAfter   String       // item status resulting from this action
-  fromDepartmentId  String?
-  fromDepartment    Department?  @relation("evidenceCustodyFrom", fields: [fromDepartmentId], references: [id], onDelete: SetNull)
-  toDepartmentId    String?
-  toDepartment      Department?  @relation("evidenceCustodyTo", fields: [toDepartmentId], references: [id], onDelete: SetNull)
-  location          String?
-  notes             String?
+  fromDepartmentId      String
+  fromDepartment        Department @relation("evidenceTransferFrom", fields: [fromDepartmentId], references: [id], onDelete: Restrict)
+  toDepartmentId        String
+  toDepartment          Department @relation("evidenceTransferTo", fields: [toDepartmentId], references: [id], onDelete: Restrict)
+  fromOfficerId         String?   // releasing officer
+  fromOfficer           Officer?  @relation("evidenceTransferFromOfficer", fields: [fromOfficerId], references: [id], onDelete: SetNull)
+  toOfficerId           String?   // receiving officer
+  toOfficer             Officer?  @relation("evidenceTransferToOfficer", fields: [toOfficerId], references: [id], onDelete: SetNull)
+  requestedByOfficerId  String
+  requestedByOfficer    Officer   @relation("evidenceTransferRequestedBy", fields: [requestedByOfficerId], references: [id], onDelete: Restrict)
+  acceptedByOfficerId   String?
+  acceptedByOfficer     Officer?  @relation("evidenceTransferAcceptedBy", fields: [acceptedByOfficerId], references: [id], onDelete: SetNull)
 
-  actorOfficerId    String
-  actorOfficer      Officer      @relation("evidenceCustodyActor", fields: [actorOfficerId], references: [id], onDelete: Restrict)
+  status                String    @default("REQUESTED") // REQUESTED | ACCEPTED | REJECTED | CANCELLED
+  reason                String
+  notes                 String?
+  previousItemStatus    String?   // evidence status before TRANSFER_PENDING — restored on reject/cancel
 
-  occurredAt        DateTime     @default(now())
-  createdAt         DateTime     @default(now())
+  requestedAt           DateTime  @default(now())
+  acceptedAt            DateTime?
+  rejectedAt            DateTime?
+  cancelledAt           DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 
-  @@index([evidenceItemId])
-  @@index([evidenceItemId, occurredAt])
-  @@index([action])
+  @@index([evidenceId])
+  @@index([evidenceId, status])
+  @@index([caseId])
+  @@index([status])
+  @@index([fromDepartmentId])
+  @@index([toDepartmentId])
+  @@index([requestedAt])
+}
+
+// Evidence ↔ Document relationships (spec §20). Direction is
+// DOCUMENT → EVIDENCE: a forensic report DESCRIBES / RESULTS_FROM /
+// DERIVED_FROM the evidence; SUPPORTS and RELATED are symmetric.
+// This is deliberately NOT a knowledge graph (spec §20/§68).
+model EvidenceDocumentRelationship {
+  id                 String       @id @default(cuid())
+  evidenceId         String       // internal Evidence.id
+  evidence           Evidence     @relation(fields: [evidenceId], references: [id], onDelete: Restrict)
+  documentId         String       // internal CaseDocument.id
+  document           CaseDocument @relation("evidenceRelationshipDocument", fields: [documentId], references: [id], onDelete: Restrict)
+  relationshipType   String       // EVIDENCE_RELATIONSHIP_TYPES (spec §20)
+  note               String?
+  createdByOfficerId String
+  createdByOfficer   Officer      @relation("evidenceRelationshipCreator", fields: [createdByOfficerId], references: [id], onDelete: Restrict)
+  createdAt          DateTime     @default(now())
+
+  @@unique([evidenceId, documentId, relationshipType])
+  @@index([evidenceId])
+  @@index([documentId])
+  @@index([relationshipType])
+}
+
+// ============================================================
+// PHASE 4 — Immutable audit architecture (spec §22-§31/§48-§55).
+//
+// APPEND-ONLY: no API ever updates or deletes an AuditEvent; the
+// SQLite layer additionally enforces this with RAISE(ABORT)
+// triggers (spec §58 — applied by scripts/apply-sqlite-guards.ts).
+// Corrections are NEW events, never edits (spec §24).
+//
+// HASH CHAIN (spec §25/§26): event_hash = SHA-256(canonical payload
+// + previous_event_hash); canonical serialization is ONE shared
+// implementation (CanonicalAuditSerializer, spec §55) — field
+// order fixed, metadata keys sorted, timestamps ISO-UTC. The chain
+// starts at the documented AUDIT_GENESIS hash (spec §27).
+//
+// caseId/documentId/evidenceId store PUBLIC identifiers WITHOUT
+// foreign keys by design: audit records are self-contained, they
+// outlive resource lifecycles, and the ledger must never be
+// blocked by (or cascade from) resource management. Actor fields
+// ARE foreign keys with Restrict — audit presence prevents
+// destroying actor identity.
+//
+// HONEST BOUNDARY (spec §29): a database hash chain is
+// tamper-EVIDENT against application-level and casual DB tampering;
+// it does NOT stop a privileged infrastructure administrator who
+// can rewrite the whole table and every hash. External anchoring
+// via LedgerAnchor (spec §30/§31) is the production extension.
+// ============================================================
+
+model AuditEvent {
+  id                String    @id @default(cuid())
+  sequence          Int       @unique // chain position, monotonic, gap-free (spec §53/§54)
+  eventId           String    @unique // public identity: EVT-2026-000001
+  eventType         String    // AUDIT_EVENT_TYPES registry (spec §21/§22)
+
+  actorOfficerId    String?
+  actorOfficer      Officer?  @relation("auditEventActor", fields: [actorOfficerId], references: [id], onDelete: Restrict)
+  actorIdentifier   String?   // attempted identity for events with no resolved actor (failed logins)
+  actorDepartmentId String?
+
+  caseId            String?   // PUBLIC id (CASE-…), no FK — self-contained ledger
+  documentId        String?   // PUBLIC id (DOC-…)
+  evidenceId        String?   // PUBLIC id (EVD-…)
+
+  sessionId         String?
+  timestamp         DateTime  @default(now()) // event occurrence time (service-stamped)
+  result            String    @default("SUCCESS") // SUCCESS | DENIED | FAILED
+  ipAddress         String?
+  deviceId          String?
+  userAgent         String?
+  metadata          String?   // sanitized JSON — never secrets/contents (spec §23/§50)
+
+  previousEventHash String    // GENESIS hash for sequence 1 (spec §27)
+  eventHash         String    // SHA-256(canonical payload incl. previous hash)
+  ledgerStatus      String    @default("UNANCHORED") // UNANCHORED | ANCHORED (spec §23/§31)
+
+  createdAt         DateTime  @default(now())
+
+  @@index([sequence])
+  @@index([eventType])
   @@index([actorOfficerId])
+  @@index([actorDepartmentId])
+  @@index([caseId])
+  @@index([documentId])
+  @@index([evidenceId])
+  @@index([timestamp])
+  @@index([result])
+  @@index([sessionId])
+}
+
+// Persisted chain state (spec §53) — the ONLY mutable row in the
+// audit architecture; kept in the same transaction as every append
+// so concurrent writers serialize correctly. Verification results
+// are cached here for the integrity dashboard (spec §61).
+model AuditChainState {
+  id                   String    @id @default("SINGLETON")
+  lastSequence         Int       @default(0)
+  lastEventHash        String    @default("") // equals AUDIT_GENESIS_HASH before the first event
+  lastEventId          String?
+  eventCount           Int       @default(0)
+  lastVerifiedAt       DateTime?
+  lastVerifiedResult   String?   // VALID | INVALID
+  lastVerifiedSequence Int?
+  lastInvalidSequence  Int?
+  updatedAt            DateTime  @updatedAt
+}
+
+// Ledger anchor (spec §30/§31/§67): a periodic commitment of the
+// chain head produced by a LedgerAdapter. MVP adapter = DATABASE
+// (self-verifying); Hyperledger Fabric adapter is an interface
+// stub for a future phase — never claimed as live (spec §31/§68).
+model LedgerAnchor {
+  id                  String   @id @default(cuid())
+  anchorId            String   @unique // public identity: ANCHOR-2026-000001
+  provider            String   // LedgerAdapters registry: DATABASE (live) | HYPERLEDGER_FABRIC (stub only)
+  chainHash           String   // chain head hash at anchor time
+  upToSequence        Int
+  eventCount          Int
+  anchoredByOfficerId String?
+  externalReference   String?  // provider transaction/reference (future external ledgers)
+  anchoredAt          DateTime @default(now())
+
+  @@index([provider])
+  @@index([anchoredAt])
 }

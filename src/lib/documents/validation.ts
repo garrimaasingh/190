@@ -2,6 +2,7 @@ import {
   DOCUMENT_ALLOWED_EXTENSIONS,
   DOCUMENT_MAX_BYTES,
   DOCUMENT_MAX_SIZE_MB,
+  EVIDENCE_ALLOWED_EXTENSIONS,
   ERROR_CODES,
 } from "@/lib/constants";
 import { ApiError } from "@/lib/api";
@@ -69,6 +70,20 @@ export function detectMimeType(buf: Buffer): string | null {
   if (startsWith(buf, [0x49, 0x49, 0x2a, 0x00]) || startsWith(buf, [0x4d, 0x4d, 0x00, 0x2a])) {
     return "image/tiff";
   }
+  // MP4/ISO-BMFF container (Phase 4 evidence: CCTV.mp4 etc.) — 'ftyp' box at offset 4
+  if (
+    buf.length > 11 &&
+    startsWith(buf, [0x66, 0x74, 0x79, 0x70, 0x6d, 0x70, 0x34], 4) // ftypmp4
+  ) {
+    return "video/mp4";
+  }
+  if (buf.length > 11 && startsWith(buf, [0x66, 0x74, 0x79, 0x70], 4)) {
+    return "video/mp4"; // other ftyp brands (isom, avc1…) — container-level detection
+  }
+  // ZIP container (Phase 4 evidence: phone extraction.zip etc.)
+  if (startsWith(buf, [0x50, 0x4b, 0x03, 0x04]) || startsWith(buf, [0x50, 0x4b, 0x05, 0x06]) || startsWith(buf, [0x50, 0x4b, 0x07, 0x08])) {
+    return "application/zip";
+  }
   // UTF-8 text candidate: reject if decode fails or binary control chars dominate
   const sample = buf.subarray(0, 8192);
   const text = sample.toString("utf8");
@@ -85,13 +100,24 @@ export function detectMimeType(buf: Buffer): string | null {
 /**
  * Full validation pipeline (spec §13). Throws ApiError with a
  * specific, user-safe code. Every check is server-side.
+ *
+ * `allowedExtensions` lets the EVIDENCE pipeline widen the format
+ * set (spec §11 names CCTV.mp4 / extraction.zip / disk.dd as
+ * evidence content) without loosening the DOCUMENT whitelist —
+ * documents keep the strict Phase 3 list.
  */
 export function validateUploadedFile(input: {
   originalFilename: string;
   declaredMimeType: string | null | undefined;
   buffer: Buffer;
+  allowedExtensions?: Record<string, string>;
+  /** Raw-image extensions (dd/001/E01) have no magic by definition —
+   *  accepted as opaque application/octet-stream, hash-anchored. */
+  allowRawDiskImage?: boolean;
 }): FileValidationResult {
   const { buffer } = input;
+  const allowedExtensions = input.allowedExtensions ?? DOCUMENT_ALLOWED_EXTENSIONS;
+  const isEvidenceProfile = allowedExtensions !== DOCUMENT_ALLOWED_EXTENSIONS;
 
   // Empty file (spec §75)
   if (!buffer || buffer.length === 0) {
@@ -112,24 +138,34 @@ export function validateUploadedFile(input: {
 
   // Extension whitelist (spec §13)
   const fileExtension = detectExtensionFromFilename(originalFilename);
-  const extensionMime = DOCUMENT_ALLOWED_EXTENSIONS[fileExtension];
-  if (!extensionMime) {
+  const extensionMime = allowedExtensions[fileExtension];
+  const rawDiskImage =
+    isEvidenceProfile &&
+    input.allowRawDiskImage !== false &&
+    ["dd", "001", "e01", "raw", "img"].includes(fileExtension);
+  if (!extensionMime && !rawDiskImage) {
     throw new ApiError(
       415,
       ERROR_CODES.UNSUPPORTED_FILE_TYPE,
-      "Unsupported file extension. Allowed: PDF, PNG, JPEG, TIFF, TXT, CSV."
+      isEvidenceProfile
+        ? "Unsupported file extension for evidence content. Allowed: PDF, PNG, JPEG, TIFF, TXT, CSV, MP4, ZIP, raw disk images (dd)."
+        : "Unsupported file extension. Allowed: PDF, PNG, JPEG, TIFF, TXT, CSV."
     );
   }
 
   // Declared MIME check — browsers may send generic octet-stream; anything
   // present must not contradict the extension family (spec §13).
   const declared = (input.declaredMimeType || "").split(";")[0].trim().toLowerCase();
+  const effectiveExtensionMime = extensionMime ?? "application/octet-stream";
   if (
     declared &&
     declared !== "application/octet-stream" &&
-    declared !== extensionMime &&
-    !(extensionMime === "text/csv" && declared === "text/plain") &&
-    !(extensionMime === "text/plain" && declared === "text/csv")
+    declared !== effectiveExtensionMime &&
+    !(effectiveExtensionMime === "text/csv" && declared === "text/plain") &&
+    !(effectiveExtensionMime === "text/plain" && declared === "text/csv") &&
+    // video containers are declared with assorted brand MIMEs — any
+    // video/* declaration is consistent with the mp4 extension.
+    !(effectiveExtensionMime === "video/mp4" && declared.startsWith("video/"))
   ) {
     throw new ApiError(
       415,
@@ -138,13 +174,18 @@ export function validateUploadedFile(input: {
     );
   }
 
+  // Raw disk images: opaque bytes by definition — no magic check exists.
+  if (rawDiskImage) {
+    return { mimeType: "application/octet-stream", fileExtension, originalFilename, fileSize: buffer.length };
+  }
+
   // Magic-byte detection (spec §13) — authoritative source of truth
   const detected = detectMimeType(buffer);
   if (!detected) {
     throw new ApiError(
       415,
       ERROR_CODES.UNSUPPORTED_FILE_TYPE,
-      "File content could not be identified as an allowed document format."
+      "File content could not be identified as an allowed format."
     );
   }
   // text/* detection refines to CSV by extension; everything else must match exactly
@@ -152,7 +193,7 @@ export function validateUploadedFile(input: {
     detected === "text/plain" && (fileExtension === "csv" || declared === "text/csv")
       ? "text/csv"
       : detected;
-  if (mimeType !== extensionMime) {
+  if (mimeType !== effectiveExtensionMime) {
     throw new ApiError(
       415,
       ERROR_CODES.UNSUPPORTED_FILE_TYPE,

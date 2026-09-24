@@ -402,6 +402,17 @@ export const DOCUMENT_ALLOWED_MIME = Array.from(new Set(Object.values(DOCUMENT_A
 export const DOCUMENT_MAX_SIZE_MB = Number(process.env.DOCUMENT_MAX_SIZE_MB || 25);
 export const DOCUMENT_MAX_BYTES = DOCUMENT_MAX_SIZE_MB * 1024 * 1024;
 
+// Evidence digital content (spec §11) — the EVIDENCE pipeline accepts
+// a WIDER format set than documents: CCTV.mp4, phone extraction.zip
+// and raw disk images (dd — no magic by definition, stored as opaque
+// application/octet-stream with the SHA-256 as the integrity anchor).
+// Documents keep the strict Phase 3 whitelist unchanged.
+export const EVIDENCE_ALLOWED_EXTENSIONS: Record<string, string> = {
+  ...DOCUMENT_ALLOWED_EXTENSIONS,
+  mp4: "video/mp4",
+  zip: "application/zip",
+};
+
 export const DOCUMENT_TITLE_MAX_LENGTH = 200;
 export const DOCUMENT_DESCRIPTION_MAX_LENGTH = 2000;
 export const DOCUMENT_REFERENCE_MAX_LENGTH = 100;
@@ -425,68 +436,183 @@ export const DOCUMENT_KEY_REFERENCE =
   process.env.DOCUMENT_KEY_REFERENCE || "DEV-ENV-KEY-1"; // labeled dev-safe key provider
 
 // ============================================================
-// PHASE 3 — Evidence & chain of custody.
-// Item status changes ONLY through EvidenceService transitions,
-// each of which writes an EvidenceCustodyEvent in the same
-// transaction. Extensible registry per platform convention.
+// PHASE 4 — Evidence & immutable audit (spec §6/§7/§8/§9/§20-§27).
+// Reference registries are extensible by design (spec §6 "keep the
+// architecture extensible"); they are SYSTEM CLASSIFICATION values,
+// not claims of exhaustive legal categories (spec §7). Source of
+// truth for business logic and UI — served via GET /api/v1/meta.
 // ============================================================
 
+// Evidence types (spec §6). Extensible — add new entries here only.
 export const EVIDENCE_TYPES = [
   "PHYSICAL",
   "DIGITAL",
   "DOCUMENTARY",
-  "BIOLOGICAL",
-  "CHEMICAL",
-  "NARCOTICS",
-  "WEAPON",
-  "ELECTRONIC_DEVICE",
-  "FINANCIAL",
+  "AUDIO",
+  "VIDEO",
+  "IMAGE",
+  "FORENSIC_SAMPLE",
+  "DEVICE",
   "OTHER",
 ] as const;
 export type EvidenceType = (typeof EVIDENCE_TYPES)[number];
 
+// Acquisition source types (spec §7). System classification values —
+// NOT claimed to be exhaustive legal categories.
+export const EVIDENCE_SOURCE_TYPES = [
+  "POLICE_SEIZURE",
+  "COURT_SUBMISSION",
+  "FORENSIC_LAB",
+  "DIGITAL_EXTRACTION",
+  "CCTV_SYSTEM",
+  "WITNESS_SUBMISSION",
+  "DEPARTMENT_TRANSFER",
+  "EXTERNAL_IMPORT",
+  "OTHER",
+] as const;
+export type EvidenceSourceType = (typeof EVIDENCE_SOURCE_TYPES)[number];
+
+// Evidence lifecycle (spec §8). Transitions are controlled by the
+// status service — the frontend can never set arbitrary statuses.
+// TRANSFER_PENDING / TRANSFERRED are driven by the custody service;
+// TRANSFER_PENDING → TRANSFERRED on accept, restored to the prior
+// operational status on reject/cancel.
 export const EVIDENCE_STATUSES = [
   "REGISTERED",
   "COLLECTED",
   "IN_CUSTODY",
-  "SUBMITTED",
+  "TRANSFER_PENDING",
+  "TRANSFERRED",
   "UNDER_EXAMINATION",
-  "EXAMINED",
   "RETURNED",
-  "CONSUMED",
+  "RELEASED",
+  "ARCHIVED",
 ] as const;
 export type EvidenceStatus = (typeof EVIDENCE_STATUSES)[number];
 
-// Controlled custody lifecycle. Terminal: RETURNED, CONSUMED.
+// Controlled lifecycle (spec §8). Terminal: ARCHIVED (and RELEASED
+// → ARCHIVED only). TRANSFER_PENDING is service-managed: accept →
+// TRANSFERRED; reject/cancel → previous operational status.
 export const EVIDENCE_STATUS_TRANSITIONS: Record<string, string[]> = {
-  REGISTERED: ["COLLECTED", "IN_CUSTODY"],
-  COLLECTED: ["IN_CUSTODY", "SUBMITTED", "RETURNED", "CONSUMED"],
-  IN_CUSTODY: ["SUBMITTED", "RETURNED", "CONSUMED"],
-  SUBMITTED: ["UNDER_EXAMINATION", "IN_CUSTODY", "RETURNED"],
-  UNDER_EXAMINATION: ["EXAMINED", "IN_CUSTODY"],
-  EXAMINED: ["IN_CUSTODY", "RETURNED", "CONSUMED"],
-  RETURNED: [],
-  CONSUMED: [],
+  REGISTERED: ["COLLECTED", "IN_CUSTODY", "UNDER_EXAMINATION", "ARCHIVED"],
+  COLLECTED: ["IN_CUSTODY", "UNDER_EXAMINATION", "RETURNED", "ARCHIVED"],
+  IN_CUSTODY: ["UNDER_EXAMINATION", "RETURNED", "RELEASED", "ARCHIVED"],
+  TRANSFER_PENDING: ["TRANSFERRED", "IN_CUSTODY"], // service-managed only
+  TRANSFERRED: ["IN_CUSTODY", "UNDER_EXAMINATION", "RETURNED", "RELEASED", "ARCHIVED"],
+  UNDER_EXAMINATION: ["IN_CUSTODY", "RETURNED", "RELEASED", "ARCHIVED"],
+  RETURNED: ["RELEASED", "ARCHIVED"],
+  RELEASED: ["ARCHIVED"],
+  ARCHIVED: [], // terminal
 };
 
-export const EVIDENCE_TERMINAL_STATUSES: string[] = ["RETURNED", "CONSUMED"];
+export const EVIDENCE_TERMINAL_STATUSES: string[] = ["ARCHIVED"];
 
-export const EVIDENCE_CUSTODY_ACTIONS = [
-  "COLLECTED",
-  "STORED",
-  "TRANSFERRED",
-  "SUBMITTED",
-  "RECEIVED",
-  "EXAMINED",
-  "RETURNED",
-  "CONSUMED",
+// Statuses that accept new documents/evidence on the parent case
+// reuse DOCUMENT_ADDITION_ALLOWED_CASE_STATUSES (same operational
+// notion: live cases only — archived/closed/cancelled are frozen).
+
+// Evidence access classification (spec §9) — reuses the Phase 3
+// LEVEL ordering; PUBLIC is deliberately excluded: evidence is by
+// nature case-sensitive material.
+export const EVIDENCE_CLASSIFICATIONS = [
+  "INTERNAL",
+  "CONFIDENTIAL",
+  "RESTRICTED",
+  "HIGHLY_RESTRICTED",
 ] as const;
-export type EvidenceCustodyAction = (typeof EVIDENCE_CUSTODY_ACTIONS)[number];
+export type EvidenceClassification = (typeof EVIDENCE_CLASSIFICATIONS)[number];
+
+export const EVIDENCE_CLASSIFICATION_NOTES: Record<string, string> = {
+  INTERNAL: "Working evidence records. Visible to authorized case participants.",
+  CONFIDENTIAL: "Sensitive evidence. Requires explicit case assignment or custodian authority.",
+  RESTRICTED: "Access limited to authorized participants with custodian authority.",
+  HIGHLY_RESTRICTED: "Highest sensitivity. Requires custodian administrative authority to register and view.",
+};
+
+// Evidence ↔ document relationship types (spec §20). Direction is
+// DOCUMENT → EVIDENCE ("Forensic report DESCRIBES evidence").
+// NOT a knowledge graph (spec §68) — no inference, no graph engine.
+export const EVIDENCE_RELATIONSHIP_TYPES = [
+  "DESCRIBES",
+  "DERIVED_FROM",
+  "RESULTS_FROM",
+  "SUPPORTS",
+  "RELATED",
+] as const;
+export type EvidenceRelationshipType = (typeof EVIDENCE_RELATIONSHIP_TYPES)[number];
+
+export const EVIDENCE_RELATIONSHIP_NOTES: Record<string, string> = {
+  DESCRIBES: "The document describes this evidence item (e.g. forensic report).",
+  DERIVED_FROM: "The document was derived from this evidence (e.g. transcript from a recording).",
+  RESULTS_FROM: "The document results from examination of this evidence (e.g. lab report).",
+  SUPPORTS: "The document supports or corroborates this evidence.",
+  RELATED: "General association without a specific direction.",
+};
 
 export const EVIDENCE_TITLE_MAX_LENGTH = 200;
 export const EVIDENCE_DESCRIPTION_MAX_LENGTH = 2000;
 export const EVIDENCE_LOCATION_MAX_LENGTH = 200;
 export const EVIDENCE_NOTES_MAX_LENGTH = 1000;
+export const EVIDENCE_CATEGORY_MAX_LENGTH = 80;
+export const EVIDENCE_NUMBER_MAX_LENGTH = 100;
+export const EVIDENCE_SOURCE_REFERENCE_MAX_LENGTH = 100;
+export const EVIDENCE_CONDITION_MAX_LENGTH = 300;
+
+// Audit event registry (spec §21/§22). The immutable hash-chained
+// audit ledger consumes these; extensible for later phases.
+export const AUDIT_EVENT_TYPES = [
+  // authentication (spec §22 example set)
+  "LOGIN_SUCCESS",
+  "LOGIN_FAILED",
+  "LOGOUT",
+  // evidence lifecycle (spec §21)
+  "EVIDENCE_CREATED",
+  "EVIDENCE_COMMITTED",
+  "EVIDENCE_STATUS_CHANGED",
+  "EVIDENCE_VIEWED",
+  "EVIDENCE_DOWNLOADED",
+  "EVIDENCE_TRANSFER_REQUESTED",
+  "EVIDENCE_TRANSFER_ACCEPTED",
+  "EVIDENCE_TRANSFER_REJECTED",
+  "EVIDENCE_TRANSFER_CANCELLED",
+  "EVIDENCE_RELATIONSHIP_CREATED",
+  "EVIDENCE_ACCESS_DENIED",
+  "EVIDENCE_INTEGRITY_VERIFIED",
+  // audit & ledger operations — auditing the auditors (spec §34)
+  "AUDIT_SEARCHED",
+  "AUDIT_EVENT_VIEWED",
+  "AUDIT_CHAIN_VERIFIED",
+  "AUDIT_ACCESS_DENIED",
+  "LEDGER_ANCHORED",
+  "LEDGER_ANCHOR_VERIFIED",
+  "LEDGER_VERIFY_FAILED",
+  // reports (spec §65/§66) — each generation is a new audited instance
+  "REPORT_GENERATED",
+  "REPORT_ACCESS_DENIED",
+] as const;
+export type AuditEventType = (typeof AUDIT_EVENT_TYPES)[number];
+
+// Audit search categories (spec §33/§60)
+export const AUDIT_EVENT_CATEGORIES: Record<string, string[]> = {
+  AUTHENTICATION: ["LOGIN_SUCCESS", "LOGIN_FAILED", "LOGOUT"],
+  EVIDENCE: ["EVIDENCE_CREATED", "EVIDENCE_COMMITTED", "EVIDENCE_STATUS_CHANGED", "EVIDENCE_VIEWED", "EVIDENCE_DOWNLOADED", "EVIDENCE_TRANSFER_REQUESTED", "EVIDENCE_TRANSFER_ACCEPTED", "EVIDENCE_TRANSFER_REJECTED", "EVIDENCE_TRANSFER_CANCELLED", "EVIDENCE_RELATIONSHIP_CREATED", "EVIDENCE_ACCESS_DENIED", "EVIDENCE_INTEGRITY_VERIFIED"],
+  AUDIT: ["AUDIT_SEARCHED", "AUDIT_EVENT_VIEWED", "AUDIT_CHAIN_VERIFIED", "AUDIT_ACCESS_DENIED"],
+  LEDGER: ["LEDGER_ANCHORED", "LEDGER_ANCHOR_VERIFIED", "LEDGER_VERIFY_FAILED"],
+  REPORT: ["REPORT_GENERATED", "REPORT_ACCESS_DENIED"],
+};
+
+// Documented genesis hash (spec §27): a defined, inspectable starting
+// point — SHA-256 of the fixed genesis seed string. The first audit
+// event's previousEventHash is exactly this value.
+export const AUDIT_GENESIS_SEED = "AUDIT_GENESIS|central-justice-platform|PHASE-4|v1";
+export const AUDIT_HASH_ALGORITHM = "SHA-256";
+
+// Ledger adapters (spec §30/§67). DATABASE is the live MVP adapter;
+// HYPERLEDGER_FABRIC is an interface stub — NEVER registered active
+// and never claimed as implemented (spec §31/§68/§74).
+export const LEDGER_ADAPTERS = ["DATABASE", "HYPERLEDGER_FABRIC"] as const;
+export const LEDGER_ACTIVE_ADAPTER = "DATABASE";
+export const LEDGER_ANCHOR_STATUSES = ["UNANCHORED", "ANCHORED"] as const;
 
 export const ERROR_CODES = {
   UNAUTHENTICATED: "UNAUTHENTICATED",
@@ -524,7 +650,15 @@ export const ERROR_CODES = {
   FILE_SCAN_FAILED: "FILE_SCAN_FAILED",
   UPLOAD_DUPLICATE_IN_PROGRESS: "UPLOAD_DUPLICATE_IN_PROGRESS",
   INVALID_FILE: "INVALID_FILE",
+  // Phase 4
   EVIDENCE_NOT_FOUND: "EVIDENCE_NOT_FOUND",
+  EVIDENCE_ACCESS_DENIED: "EVIDENCE_ACCESS_DENIED",
+  EVIDENCE_IMMUTABLE: "EVIDENCE_IMMUTABLE",
   INVALID_EVIDENCE_TRANSITION: "INVALID_EVIDENCE_TRANSITION",
+  INVALID_EVIDENCE_STATE: "INVALID_EVIDENCE_STATE",
+  AUDIT_NOT_FOUND: "AUDIT_NOT_FOUND",
+  AUDIT_ACCESS_DENIED: "AUDIT_ACCESS_DENIED",
+  AUDIT_CHAIN_INVALID: "AUDIT_CHAIN_INVALID",
+  LEDGER_ERROR: "LEDGER_ERROR",
   INTERNAL_ERROR: "INTERNAL_ERROR",
 } as const;

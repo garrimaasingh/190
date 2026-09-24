@@ -49,6 +49,15 @@ export const PERMISSIONS = {
   DOCUMENT_DELETE: "document.delete",
   EVIDENCE_READ: "evidence.read",
   EVIDENCE_MANAGE: "evidence.manage",
+  // Phase 4 — evidence custody, immutable audit, ledger, reports.
+  // Same necessity rule: audit/ledger routes additionally enforce
+  // role, and evidence routes enforce case + evidence-level access.
+  EVIDENCE_TRANSFER_INITIATE: "evidence.transfer.initiate",
+  EVIDENCE_TRANSFER_DECIDE: "evidence.transfer.decide",
+  AUDIT_READ: "audit.read",
+  AUDIT_VERIFY: "audit.verify",
+  LEDGER_MANAGE: "ledger.manage",
+  REPORT_GENERATE: "report.generate",
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -84,6 +93,12 @@ const SYSTEM_ADMIN: Permission[] = [
   PERMISSIONS.DOCUMENT_DELETE,
   PERMISSIONS.EVIDENCE_READ,
   PERMISSIONS.EVIDENCE_MANAGE,
+  PERMISSIONS.EVIDENCE_TRANSFER_INITIATE,
+  PERMISSIONS.EVIDENCE_TRANSFER_DECIDE,
+  PERMISSIONS.AUDIT_READ,
+  PERMISSIONS.AUDIT_VERIFY,
+  PERMISSIONS.LEDGER_MANAGE,
+  PERMISSIONS.REPORT_GENERATE,
 ];
 
 const DEPARTMENT_ADMIN: Permission[] = [
@@ -113,6 +128,9 @@ const DEPARTMENT_ADMIN: Permission[] = [
   PERMISSIONS.DOCUMENT_DELETE,
   PERMISSIONS.EVIDENCE_READ,
   PERMISSIONS.EVIDENCE_MANAGE,
+  PERMISSIONS.EVIDENCE_TRANSFER_INITIATE,
+  PERMISSIONS.EVIDENCE_TRANSFER_DECIDE,
+  PERMISSIONS.REPORT_GENERATE,
 ];
 
 const OFFICER: Permission[] = [
@@ -134,6 +152,9 @@ const OFFICER: Permission[] = [
   PERMISSIONS.DOCUMENT_DELETE,
   PERMISSIONS.EVIDENCE_READ,
   PERMISSIONS.EVIDENCE_MANAGE,
+  PERMISSIONS.EVIDENCE_TRANSFER_INITIATE,
+  PERMISSIONS.EVIDENCE_TRANSFER_DECIDE,
+  PERMISSIONS.REPORT_GENERATE,
 ];
 
 const AUDITOR: Permission[] = [
@@ -146,6 +167,11 @@ const AUDITOR: Permission[] = [
   PERMISSIONS.CASE_READ, // read-only by policy — no case mutation permission is granted
   PERMISSIONS.DOCUMENT_READ, // audit visibility includes documents & evidence
   PERMISSIONS.EVIDENCE_READ,
+  PERMISSIONS.AUDIT_READ, // Phase 4: search/inspect the immutable audit trail
+  PERMISSIONS.AUDIT_VERIFY, // Phase 4: run chain verification (read-only operation)
+  PERMISSIONS.REPORT_GENERATE, // Phase 4: read-level report generation
+  // Deliberately ABSENT: audit mutation (does not exist), case/
+  // document/evidence write permissions, LEDGER_MANAGE.
 ];
 
 export const ROLE_PERMISSIONS: Record<string, Permission[]> = {

@@ -505,3 +505,166 @@ export interface IntegrityVerifyResponse {
   recordedHash: string;
   computedHash: string;
 }
+
+// ---------- Phase 4: evidence & audit types ----------
+
+export interface EvidenceRow {
+  id: string;
+  caseId: string;
+  evidenceNumber: string | null;
+  title: string;
+  description: string | null;
+  evidenceType: string;
+  category: string | null;
+  status: string;
+  classification: string;
+  sourceType: string;
+  sourceReference: string | null;
+  collectionLocation: string | null;
+  collectedAt: string | null;
+  receivedAt: string | null;
+  condition: string | null;
+  notes: string | null;
+  deviceMetadata: Record<string, string> | null;
+  hasDigitalContent: boolean;
+  originalFilename: string | null;
+  mimeType: string | null;
+  fileSize: number | null;
+  sha256Hash: string | null;
+  hashAlgorithm: string;
+  encryptionStatus: string | null;
+  registeredByOfficer: { officerId: string; name: string } | null;
+  currentCustodianDepartment: { id: string; departmentCode: string; name: string; departmentType: string } | null;
+  currentCustodianOfficer: { officerId: string; name: string } | null;
+  collectedByOfficer: { officerId: string; name: string } | null;
+  collectingDepartment: { id: string; departmentCode: string; name: string; departmentType: string } | null;
+  committedAt: string | null;
+  createdAt: string;
+}
+
+export interface EvidenceListResponse {
+  items: EvidenceRow[];
+  total: number;
+  page: number;
+  pageSize: number;
+  caseId: string;
+  canRegister: boolean;
+}
+
+export interface EvidenceRelationshipRow {
+  id: string;
+  relationshipType: string;
+  note: string | null;
+  createdAt: string;
+  document: { documentId: string; title: string; documentType: string; classification: string; status: string };
+  createdByOfficer: { officerId: string; name: string } | null;
+}
+
+export interface CustodyChainEntry {
+  kind: "COLLECTED" | "TRANSFER";
+  timestamp: string;
+  actorDepartment: string | null;
+  actorOfficer: string | null;
+  action: string;
+  status: string;
+  fromDepartment: string | null;
+  toDepartment: string | null;
+  detail: Record<string, unknown> | null;
+}
+
+export interface CustodyChainResponse {
+  evidenceId: string;
+  currentCustodian: { department: string; officer: string | null } | null;
+  status: string;
+  chain: CustodyChainEntry[];
+}
+
+export interface AuditEventRow {
+  eventId: string;
+  sequence: number;
+  eventType: string;
+  actor: { officerId: string; name: string } | null;
+  actorIdentifier: string | null;
+  actorDepartmentId: string | null;
+  caseId: string | null;
+  documentId: string | null;
+  evidenceId: string | null;
+  sessionId: string | null;
+  timestamp: string;
+  result: string;
+  ipAddress: string | null;
+  userAgent: string | null;
+  metadata: Record<string, unknown> | null;
+  previousEventHash: string;
+  eventHash: string;
+  ledgerStatus: string;
+}
+
+export interface AuditListResponse {
+  items: AuditEventRow[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export interface AuditIntegrityStatus {
+  chain: {
+    eventCount: number;
+    lastSequence: number;
+    lastEventHash: string;
+    lastEventId: string | null;
+    genesisHash: string;
+    hashAlgorithm: string;
+  };
+  lastVerification: {
+    verifiedAt: string;
+    result: string;
+    verifiedThroughSequence: number | null;
+    firstInvalidSequence: number | null;
+  } | null;
+  ledgerAdapters: { name: string; live: boolean }[];
+}
+
+export interface ChainVerificationResponse {
+  valid: boolean;
+  algorithm: string;
+  eventsChecked: number;
+  fromSequence: number;
+  toSequence: number;
+  headHash: string | null;
+  firstInvalid: {
+    sequence: number;
+    eventId: string;
+    reason: string;
+    expectedHash?: string;
+    actualHash?: string;
+    expectedPreviousHash?: string;
+  } | null;
+}
+
+export interface LedgerAnchorRow {
+  anchorId: string;
+  provider: string;
+  chainHash: string;
+  upToSequence: number;
+  eventCount: number;
+  externalReference: string | null;
+  anchoredAt: string;
+}
+
+export interface CaseIntegritySummary {
+  caseId: string;
+  documents: number;
+  evidence: number;
+  custodyTransfers: number;
+  auditEvents: number | null;
+  auditEventsNote?: string;
+  chain: {
+    valid: boolean;
+    algorithm: string;
+    eventCount: number;
+    lastEventHash: string;
+    lastVerifiedAt: string | null;
+    informationalOnly: boolean;
+  };
+}
