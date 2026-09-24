@@ -1,5 +1,4 @@
 import { db } from "@/lib/db";
-import { geoCodeFragments, type ResolvedGeo } from "@/lib/geo";
 
 // ============================================================
 // Case & transfer identity generation (spec §3/§20).
@@ -9,19 +8,32 @@ import { geoCodeFragments, type ResolvedGeo } from "@/lib/geo";
 // - Immutable once issued; independent of custodian.
 // - Retry-on-conflict guards concurrent creation (same pattern
 //   as Phase 1 department/officer ID generation).
+//
+// The geo parameter is structurally typed (IdGeo) so callers can
+// pass either a full ResolvedGeo (case creation) or a light
+// projection of the case's stored geography (Phase 3 documents
+// / evidence, which inherit the case's geo).
 // ============================================================
+
+export interface IdGeo {
+  state: { code: string };
+  district: { code: string };
+}
 
 function pad(n: number, width: number): string {
   return String(n).padStart(width, "0");
 }
 
-function districtFragment(geo: ResolvedGeo): string {
+function districtFragment(geo: IdGeo): string {
   return geo.district.code.replace(/[^A-Za-z0-9]/g, "").slice(0, 4).toUpperCase() || "XXXX";
 }
 
-export async function generateCaseId(geo: ResolvedGeo, year: number): Promise<string> {
-  const { stateCode } = geoCodeFragments(geo);
-  const prefix = `CASE-${stateCode}-${districtFragment(geo)}-${year}-`;
+function stateFragment(geo: IdGeo): string {
+  return geo.state.code.replace(/[^A-Za-z0-9]/g, "").slice(0, 4).toUpperCase() || "XXXX";
+}
+
+export async function generateCaseId(geo: IdGeo, year: number): Promise<string> {
+  const prefix = `CASE-${stateFragment(geo)}-${districtFragment(geo)}-${year}-`;
 
   for (let attempt = 0; attempt < 5; attempt++) {
     const count = await db.case.count({
@@ -34,9 +46,8 @@ export async function generateCaseId(geo: ResolvedGeo, year: number): Promise<st
   return `${prefix}${Date.now().toString().slice(-9)}`;
 }
 
-export async function generateTransferId(geo: ResolvedGeo, year: number): Promise<string> {
-  const { stateCode } = geoCodeFragments(geo);
-  const prefix = `TRF-${stateCode}-${districtFragment(geo)}-${year}-`;
+export async function generateTransferId(geo: IdGeo, year: number): Promise<string> {
+  const prefix = `TRF-${stateFragment(geo)}-${districtFragment(geo)}-${year}-`;
 
   for (let attempt = 0; attempt < 5; attempt++) {
     const count = await db.caseTransfer.count({
@@ -44,6 +55,40 @@ export async function generateTransferId(geo: ResolvedGeo, year: number): Promis
     });
     const candidate = `${prefix}${pad(count + 1, 6)}`;
     const exists = await db.caseTransfer.findUnique({ where: { transferId: candidate } });
+    if (!exists) return candidate;
+  }
+  return `${prefix}${Date.now().toString().slice(-9)}`;
+}
+
+// ============================================================
+// PHASE 3 — document & evidence identity. Documents/evidence
+// inherit the case's geography; generation follows the same
+// backend-only, retry-on-conflict pattern.
+// ============================================================
+
+export async function generateDocumentId(geo: IdGeo, year: number): Promise<string> {
+  const prefix = `DOC-${stateFragment(geo)}-${districtFragment(geo)}-${year}-`;
+
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const count = await db.caseDocument.count({
+      where: { documentId: { startsWith: prefix } },
+    });
+    const candidate = `${prefix}${pad(count + 1, 6)}`;
+    const exists = await db.caseDocument.findUnique({ where: { documentId: candidate } });
+    if (!exists) return candidate;
+  }
+  return `${prefix}${Date.now().toString().slice(-9)}`;
+}
+
+export async function generateEvidenceId(geo: IdGeo, year: number): Promise<string> {
+  const prefix = `EV-${stateFragment(geo)}-${districtFragment(geo)}-${year}-`;
+
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const count = await db.evidenceItem.count({
+      where: { evidenceId: { startsWith: prefix } },
+    });
+    const candidate = `${prefix}${pad(count + 1, 6)}`;
+    const exists = await db.evidenceItem.findUnique({ where: { evidenceId: candidate } });
     if (!exists) return candidate;
   }
   return `${prefix}${Date.now().toString().slice(-9)}`;

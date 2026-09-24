@@ -190,17 +190,132 @@ export const CASE_EVENT_TYPES = [
   "CASE_TRANSFER_REJECTED",
   "CASE_TRANSFER_CANCELLED",
   "CASE_ACCESS_DENIED",
-  // Phase 3+ (registered for forward compatibility, not emitted yet):
+  // Phase 3 — documents & evidence (registry extended per forward-
+  // compatibility design; no schema redesign required):
   "DOCUMENT_UPLOADED",
   "DOCUMENT_VIEWED",
   "DOCUMENT_DOWNLOADED",
+  "DOCUMENT_UPDATED",
+  "DOCUMENT_REMOVED",
+  "DOCUMENT_VERSION_ADDED",
+  "EVIDENCE_REGISTERED",
   "EVIDENCE_SUBMITTED",
+  "EVIDENCE_CUSTODY_CHANGED",
+  "EVIDENCE_UPDATED",
 ] as const;
 export type CaseEventType = (typeof CASE_EVENT_TYPES)[number];
 
 export const CASE_NUMBER_MAX_LENGTH = 64;
 export const CASE_TITLE_MAX_LENGTH = 200;
 export const CASE_DESCRIPTION_MAX_LENGTH = 4000;
+
+// ============================================================
+// PHASE 3 — Documents (spec §58 forward refs).
+// Reference lists are extensible registries; business logic and
+// UI must read them from here / GET /api/v1/meta, never inline.
+// ============================================================
+
+export const DOCUMENT_TYPES = [
+  "FIR",
+  "COMPLAINT",
+  "CHARGESHEET",
+  "PANCHNAMA",
+  "SEIZURE_MEMO",
+  "WITNESS_STATEMENT",
+  "FORENSIC_REPORT",
+  "MEDICAL_REPORT",
+  "COURT_ORDER",
+  "PHOTOGRAPH",
+  "VIDEO",
+  "AUDIO",
+  "CORRESPONDENCE",
+  "OTHER",
+] as const;
+export type DocumentType = (typeof DOCUMENT_TYPES)[number];
+
+export const DOCUMENT_STATUSES = ["ACTIVE", "SUPERSEDED", "REMOVED"] as const;
+export type DocumentStatus = (typeof DOCUMENT_STATUSES)[number];
+
+// Upload controls: strict whitelist — content is decided by magic
+// bytes / decode, never by the client-declared MIME. Office/zip
+// formats are intentionally excluded (polyglot risk, weak magic).
+export const DOCUMENT_MAX_BYTES = 25 * 1024 * 1024; // 25 MB
+export const DOCUMENT_ALLOWED_MIME = [
+  "application/pdf",
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+  "text/plain",
+  "text/csv",
+] as const;
+
+export const DOCUMENT_TITLE_MAX_LENGTH = 200;
+export const DOCUMENT_DESCRIPTION_MAX_LENGTH = 2000;
+export const DOCUMENT_REMOVAL_REASON_MAX_LENGTH = 500;
+
+// ============================================================
+// PHASE 3 — Evidence & chain of custody.
+// Item status changes ONLY through EvidenceService transitions,
+// each of which writes an EvidenceCustodyEvent in the same
+// transaction. Extensible registry per platform convention.
+// ============================================================
+
+export const EVIDENCE_TYPES = [
+  "PHYSICAL",
+  "DIGITAL",
+  "DOCUMENTARY",
+  "BIOLOGICAL",
+  "CHEMICAL",
+  "NARCOTICS",
+  "WEAPON",
+  "ELECTRONIC_DEVICE",
+  "FINANCIAL",
+  "OTHER",
+] as const;
+export type EvidenceType = (typeof EVIDENCE_TYPES)[number];
+
+export const EVIDENCE_STATUSES = [
+  "REGISTERED",
+  "COLLECTED",
+  "IN_CUSTODY",
+  "SUBMITTED",
+  "UNDER_EXAMINATION",
+  "EXAMINED",
+  "RETURNED",
+  "CONSUMED",
+] as const;
+export type EvidenceStatus = (typeof EVIDENCE_STATUSES)[number];
+
+// Controlled custody lifecycle. Terminal: RETURNED, CONSUMED.
+export const EVIDENCE_STATUS_TRANSITIONS: Record<string, string[]> = {
+  REGISTERED: ["COLLECTED", "IN_CUSTODY"],
+  COLLECTED: ["IN_CUSTODY", "SUBMITTED", "RETURNED", "CONSUMED"],
+  IN_CUSTODY: ["SUBMITTED", "RETURNED", "CONSUMED"],
+  SUBMITTED: ["UNDER_EXAMINATION", "IN_CUSTODY", "RETURNED"],
+  UNDER_EXAMINATION: ["EXAMINED", "IN_CUSTODY"],
+  EXAMINED: ["IN_CUSTODY", "RETURNED", "CONSUMED"],
+  RETURNED: [],
+  CONSUMED: [],
+};
+
+export const EVIDENCE_TERMINAL_STATUSES: string[] = ["RETURNED", "CONSUMED"];
+
+export const EVIDENCE_CUSTODY_ACTIONS = [
+  "COLLECTED",
+  "STORED",
+  "TRANSFERRED",
+  "SUBMITTED",
+  "RECEIVED",
+  "EXAMINED",
+  "RETURNED",
+  "CONSUMED",
+] as const;
+export type EvidenceCustodyAction = (typeof EVIDENCE_CUSTODY_ACTIONS)[number];
+
+export const EVIDENCE_TITLE_MAX_LENGTH = 200;
+export const EVIDENCE_DESCRIPTION_MAX_LENGTH = 2000;
+export const EVIDENCE_LOCATION_MAX_LENGTH = 200;
+export const EVIDENCE_NOTES_MAX_LENGTH = 1000;
 
 export const ERROR_CODES = {
   UNAUTHENTICATED: "UNAUTHENTICATED",
@@ -227,5 +342,10 @@ export const ERROR_CODES = {
   CONCURRENCY_CONFLICT: "CONCURRENCY_CONFLICT",
   DEPARTMENT_INELIGIBLE: "DEPARTMENT_INELIGIBLE",
   OFFICER_INELIGIBLE: "OFFICER_INELIGIBLE",
+  // Phase 3
+  DOCUMENT_NOT_FOUND: "DOCUMENT_NOT_FOUND",
+  INVALID_FILE: "INVALID_FILE",
+  EVIDENCE_NOT_FOUND: "EVIDENCE_NOT_FOUND",
+  INVALID_EVIDENCE_TRANSITION: "INVALID_EVIDENCE_TRANSITION",
   INTERNAL_ERROR: "INTERNAL_ERROR",
 } as const;

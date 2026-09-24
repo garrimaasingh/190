@@ -41,6 +41,14 @@ export const PERMISSIONS = {
   CASE_DEPARTMENT_MANAGE: "case.department.manage",
   CASE_TRANSFER_INITIATE: "case.transfer.initiate",
   CASE_TRANSFER_DECIDE: "case.transfer.decide",
+  // Phase 3 — documents & evidence. Role permission is necessary but
+  // NOT sufficient: every route additionally enforces case-level
+  // access (view for reads, manage for mutations).
+  DOCUMENT_READ: "document.read",
+  DOCUMENT_UPLOAD: "document.upload",
+  DOCUMENT_DELETE: "document.delete",
+  EVIDENCE_READ: "evidence.read",
+  EVIDENCE_MANAGE: "evidence.manage",
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -71,6 +79,11 @@ const SYSTEM_ADMIN: Permission[] = [
   PERMISSIONS.CASE_DEPARTMENT_MANAGE,
   PERMISSIONS.CASE_TRANSFER_INITIATE,
   PERMISSIONS.CASE_TRANSFER_DECIDE,
+  PERMISSIONS.DOCUMENT_READ,
+  PERMISSIONS.DOCUMENT_UPLOAD,
+  PERMISSIONS.DOCUMENT_DELETE,
+  PERMISSIONS.EVIDENCE_READ,
+  PERMISSIONS.EVIDENCE_MANAGE,
 ];
 
 const DEPARTMENT_ADMIN: Permission[] = [
@@ -95,6 +108,11 @@ const DEPARTMENT_ADMIN: Permission[] = [
   PERMISSIONS.CASE_DEPARTMENT_MANAGE,
   PERMISSIONS.CASE_TRANSFER_INITIATE,
   PERMISSIONS.CASE_TRANSFER_DECIDE,
+  PERMISSIONS.DOCUMENT_READ,
+  PERMISSIONS.DOCUMENT_UPLOAD,
+  PERMISSIONS.DOCUMENT_DELETE,
+  PERMISSIONS.EVIDENCE_READ,
+  PERMISSIONS.EVIDENCE_MANAGE,
 ];
 
 const OFFICER: Permission[] = [
@@ -111,6 +129,11 @@ const OFFICER: Permission[] = [
   PERMISSIONS.CASE_OFFICER_MANAGE,
   PERMISSIONS.CASE_TRANSFER_INITIATE,
   PERMISSIONS.CASE_TRANSFER_DECIDE,
+  PERMISSIONS.DOCUMENT_READ,
+  PERMISSIONS.DOCUMENT_UPLOAD,
+  PERMISSIONS.DOCUMENT_DELETE,
+  PERMISSIONS.EVIDENCE_READ,
+  PERMISSIONS.EVIDENCE_MANAGE,
 ];
 
 const AUDITOR: Permission[] = [
@@ -121,6 +144,8 @@ const AUDITOR: Permission[] = [
   PERMISSIONS.PLATFORM_STATS_READ,
   PERMISSIONS.EVENTS_READ,
   PERMISSIONS.CASE_READ, // read-only by policy — no case mutation permission is granted
+  PERMISSIONS.DOCUMENT_READ, // audit visibility includes documents & evidence
+  PERMISSIONS.EVIDENCE_READ,
 ];
 
 export const ROLE_PERMISSIONS: Record<string, Permission[]> = {

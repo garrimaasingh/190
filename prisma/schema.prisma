@@ -96,6 +96,9 @@ model Department {
   caseOfficerRecords CaseOfficer[]
   transfersAsFrom    CaseTransfer[]   @relation("transferFrom")
   transfersAsTo      CaseTransfer[]   @relation("transferTo")
+  evidenceCustodyOf  EvidenceItem[]           @relation("evidenceCustodian")
+  evidenceCustodyFrom EvidenceCustodyEvent[] @relation("evidenceCustodyFrom")
+  evidenceCustodyTo  EvidenceCustodyEvent[]   @relation("evidenceCustodyTo")
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
 
@@ -128,6 +131,11 @@ model Officer {
   transfersToOfficer      CaseTransfer[] @relation("transferToOfficer")
   transfersRequestedBy    CaseTransfer[] @relation("transferRequestedBy")
   transfersAcceptedBy     CaseTransfer[] @relation("transferAcceptedBy")
+  documentsUploaded       CaseDocument[] @relation("documentUploader")
+  documentsRemoved        CaseDocument[] @relation("documentRemover")
+  evidenceCollected       EvidenceItem[] @relation("evidenceCollector")
+  evidenceRegistered      EvidenceItem[] @relation("evidenceRegistrar")
+  evidenceCustodyActions  EvidenceCustodyEvent[] @relation("evidenceCustodyActor")
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
 
@@ -220,6 +228,8 @@ model Case {
   officers                      CaseOfficer[]
   transfers                     CaseTransfer[]
   events                        CaseEvent[]
+  documents                     CaseDocument[]
+  evidenceItems                 EvidenceItem[]
 
   createdAt                     DateTime  @default(now())
   updatedAt                     DateTime  @updatedAt
@@ -343,4 +353,131 @@ model CaseEvent {
   @@index([caseId, createdAt])
   @@index([eventType])
   @@index([departmentId])
+}
+
+// ============================================================
+// PHASE 3 — Case Documents & Evidence (spec §58 forward refs).
+//
+// DOCUMENT VERSIONING: every uploaded version is its own
+// immutable CaseDocument row. Rows sharing a documentGroup form
+// one logical document; the newest ACTIVE row is the current
+// version, older rows become SUPERSEDED. Nothing is ever hard-
+// deleted: removal is a status (REMOVED) with actor + reason.
+// Files live OUTSIDE /public and are served only through the
+// case-authorized download API; SHA-256 checksums are recorded
+// at upload for integrity verification (justice-platform duty).
+// ============================================================
+
+model CaseDocument {
+  id                     String    @id @default(cuid())
+  documentId             String    @unique // public identity: DOC-MP-IND-2026-000001
+  caseId                 String
+  case                   Case      @relation(fields: [caseId], references: [id], onDelete: Restrict)
+  documentGroup          String    // all versions of one logical document share this
+  version                Int       @default(1)
+  status                 String    @default("ACTIVE") // ACTIVE | SUPERSEDED | REMOVED
+
+  title                  String
+  description            String?
+  docType                String
+  originalFilename       String
+  mimeType               String    // decided server-side by magic bytes, never the client header
+  fileSize               Int
+  checksumSha256         String
+  fileKey                String    // server-generated UUID filename inside db/uploads/documents
+
+  uploadedByOfficerId    String
+  uploadedByOfficer      Officer   @relation("documentUploader", fields: [uploadedByOfficerId], references: [id], onDelete: Restrict)
+  uploadedByDepartmentId String
+
+  supersededByDocumentId String?   // public id of the row that replaced this version
+  removedByOfficerId     String?
+  removedByOfficer       Officer?  @relation("documentRemover", fields: [removedByOfficerId], references: [id], onDelete: SetNull)
+  removedAt              DateTime?
+  removalReason          String?
+
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  @@unique([documentGroup, version])
+  @@index([caseId])
+  @@index([caseId, status])
+  @@index([documentGroup])
+  @@index([docType])
+  @@index([status])
+  @@index([uploadedByDepartmentId])
+  @@index([createdAt])
+}
+
+// ============================================================
+// EVIDENCE: physical/digital items with a full chain of custody.
+// The item's current* fields are maintained ONLY by the evidence
+// custody service — every change writes an EvidenceCustodyEvent
+// row in the same transaction (audit-first, like CaseTransfer).
+// Controllers must never mutate custody fields directly.
+// ============================================================
+
+model EvidenceItem {
+  id                          String    @id @default(cuid())
+  evidenceId                  String    @unique // public identity: EV-MP-IND-2026-000001
+  caseId                      String
+  case                        Case      @relation(fields: [caseId], references: [id], onDelete: Restrict)
+
+  title                       String
+  description                 String?
+  evidenceType                String
+  status                      String    @default("REGISTERED")
+
+  collectedByOfficerId        String?
+  collectedByOfficer          Officer?  @relation("evidenceCollector", fields: [collectedByOfficerId], references: [id], onDelete: SetNull)
+  collectedAt                 DateTime?
+
+  currentCustodianDepartmentId String?
+  currentCustodianDepartment  Department? @relation("evidenceCustodian", fields: [currentCustodianDepartmentId], references: [id], onDelete: SetNull)
+  currentLocation             String?
+
+  registeredByOfficerId       String
+  registeredByOfficer         Officer   @relation("evidenceRegistrar", fields: [registeredByOfficerId], references: [id], onDelete: Restrict)
+  registeredByDepartmentId    String
+
+  removedByOfficerId          String?
+  removedAt                   DateTime?
+  removalReason               String?
+
+  custodyEvents               EvidenceCustodyEvent[]
+  createdAt                   DateTime  @default(now())
+  updatedAt                   DateTime  @updatedAt
+
+  @@index([caseId])
+  @@index([evidenceType])
+  @@index([status])
+  @@index([currentCustodianDepartmentId])
+  @@index([registeredByDepartmentId])
+  @@index([createdAt])
+}
+
+model EvidenceCustodyEvent {
+  id                String       @id @default(cuid())
+  evidenceItemId    String
+  evidenceItem      EvidenceItem @relation(fields: [evidenceItemId], references: [id], onDelete: Restrict)
+
+  action            String       // COLLECTED | STORED | TRANSFERRED | SUBMITTED | RECEIVED | EXAMINED | RETURNED | CONSUMED
+  itemStatusAfter   String       // item status resulting from this action
+  fromDepartmentId  String?
+  fromDepartment    Department?  @relation("evidenceCustodyFrom", fields: [fromDepartmentId], references: [id], onDelete: SetNull)
+  toDepartmentId    String?
+  toDepartment      Department?  @relation("evidenceCustodyTo", fields: [toDepartmentId], references: [id], onDelete: SetNull)
+  location          String?
+  notes             String?
+
+  actorOfficerId    String
+  actorOfficer      Officer      @relation("evidenceCustodyActor", fields: [actorOfficerId], references: [id], onDelete: Restrict)
+
+  occurredAt        DateTime     @default(now())
+  createdAt         DateTime     @default(now())
+
+  @@index([evidenceItemId])
+  @@index([evidenceItemId, occurredAt])
+  @@index([action])
+  @@index([actorOfficerId])
 }
