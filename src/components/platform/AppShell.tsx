@@ -13,7 +13,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { LayoutDashboard, Network, Building2, Users, ScrollText, UserCircle, Settings as SettingsIcon, Menu, LogOut, ShieldCheck, FolderSearch, Boxes, Scale, FileCheck2, ShieldEllipsis } from "lucide-react";
+import { LayoutDashboard, Network, Building2, Users, ScrollText, UserCircle, Settings as SettingsIcon, Menu, LogOut, ShieldCheck, FolderSearch, Boxes, Scale, FileCheck2, ShieldEllipsis, SearchCheck, Bot, UserCheck2 } from "lucide-react";
 
 // ============================================================
 // AppShell (spec §20/§53): role-aware sidebar + topbar.
@@ -30,6 +30,9 @@ export type ViewKey =
   | "case-document-view"
   | "case-evidence-register"
   | "case-evidence-detail"
+  | "ai"
+  | "ai-review"
+  | "search"
   | "organization"
   | "departments"
   | "department-register"
@@ -54,6 +57,9 @@ export interface NavItem {
 const NAV: NavItem[] = [
   { key: "dashboard", label: "Dashboard", icon: <LayoutDashboard size={18} aria-hidden />, roles: ["SYSTEM_ADMIN", "DEPARTMENT_ADMIN", "OFFICER", "AUDITOR"] },
   { key: "cases", label: "Cases", icon: <FolderSearch size={18} aria-hidden />, roles: ["SYSTEM_ADMIN", "DEPARTMENT_ADMIN", "OFFICER", "AUDITOR"] },
+  { key: "search", label: "AI Search", icon: <SearchCheck size={18} aria-hidden />, roles: ["SYSTEM_ADMIN", "DEPARTMENT_ADMIN", "OFFICER", "AUDITOR"] },
+  { key: "ai", label: "AI Intelligence", icon: <Bot size={18} aria-hidden />, roles: ["SYSTEM_ADMIN", "DEPARTMENT_ADMIN", "OFFICER", "AUDITOR"] },
+  { key: "ai-review", label: "AI Review Queue", icon: <UserCheck2 size={18} aria-hidden />, roles: ["SYSTEM_ADMIN", "DEPARTMENT_ADMIN"] },
   { key: "organization", label: "Organization", icon: <Network size={18} aria-hidden />, roles: ["SYSTEM_ADMIN", "DEPARTMENT_ADMIN", "OFFICER"] },
   { key: "departments", label: "Departments", icon: <Building2 size={18} aria-hidden />, roles: ["SYSTEM_ADMIN", "AUDITOR"] },
   { key: "department-register", label: "Register Department", icon: <Building2 size={18} aria-hidden />, roles: ["SYSTEM_ADMIN"] },
@@ -89,7 +95,8 @@ export function AppShell({
         const active =
           item.key === view ||
           (view === "officer-detail" && item.key === "officers") ||
-          ((view === "case-create" || view === "case-detail") && item.key === "cases");
+          ((view === "case-create" || view === "case-detail") && item.key === "cases") ||
+          ((view === "ai-review") && item.key === "ai");
         return (
           <button
             key={item.key}

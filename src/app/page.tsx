@@ -25,6 +25,9 @@ import { EvidenceDetailsView } from "@/components/platform/views/EvidenceDetails
 import { AuditView, AuditDetailView } from "@/components/platform/views/AuditView";
 import { AuditIntegrityView } from "@/components/platform/views/AuditIntegrityView";
 import { ReportsView } from "@/components/platform/views/ReportsView";
+import { AIDashboardView } from "@/components/platform/views/AIDashboardView";
+import { AIReviewQueueView } from "@/components/platform/views/AIReviewQueueView";
+import { GlobalSearchView } from "@/components/platform/views/GlobalSearchView";
 import { LoadingState, ErrorState } from "@/components/platform/common";
 import { ShieldAlert } from "lucide-react";
 
@@ -121,6 +124,32 @@ function Shell() {
       ) : (
         <AccessDenied what="this page" />
       );
+      break;
+    case "search":
+      content = (
+        <GlobalSearchView
+          onOpenSource={(caseId, documentId) => setNav({ view: "case-document-detail", caseId, documentId, documentMode: "details" })}
+        />
+      );
+      break;
+    case "ai":
+      content = (
+        <AIDashboardView
+          role={role}
+          onOpenReviewQueue={() => navigate("ai-review")}
+          onOpenJobCase={(caseId) => setNav({ view: "case-detail", caseId })}
+        />
+      );
+      break;
+    case "ai-review":
+      content =
+        role === "OFFICER" || role === "AUDITOR" ? (
+          <AccessDenied what="AI review actions" />
+        ) : (
+          <AIReviewQueueView
+            onOpenSource={(caseId, documentId) => setNav({ view: "case-document-detail", caseId, documentId, documentMode: "details" })}
+          />
+        );
       break;
     case "case-document-upload":
       content = nav.caseId ? (

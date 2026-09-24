@@ -101,6 +101,8 @@ model Department {
   evidenceCollectedOf     Evidence[]          @relation("evidenceCollectingDept")
   evidenceTransfersFrom   EvidenceTransfer[]  @relation("evidenceTransferFrom")
   evidenceTransfersTo     EvidenceTransfer[]  @relation("evidenceTransferTo")
+  aiJobsRequested       AIProcessingJob[] @relation("aiJobRequesterDepartment")
+  aiReviewsGiven        AIReview[]        @relation("aiReviewDepartment")
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
 
@@ -145,6 +147,11 @@ model Officer {
   evidenceTransfersToOfficer   EvidenceTransfer[]         @relation("evidenceTransferToOfficer")
   evidenceRelCreators      EvidenceDocumentRelationship[] @relation("evidenceRelationshipCreator")
   auditEventsActed         AuditEvent[]                   @relation("auditEventActor")
+  aiJobsRequested          AIProcessingJob[]              @relation("aiJobRequester")
+  aiClassificationsReviewed AIDocumentClassification[]    @relation("aiClassificationReviewer")
+  aiEntityMatchesReviewed  EntityCandidateMatch[]         @relation("entityMatchReviewer")
+  aiRelationshipsReviewed  AIRelationshipSuggestion[]     @relation("aiRelationshipReviewer")
+  aiReviewsGiven           AIReview[]                     @relation("aiReviewReviewer")
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
 
@@ -241,6 +248,8 @@ model Case {
   documentUploadSessions        DocumentUploadSession[]
   evidence                      Evidence[]
   evidenceTransfers             EvidenceTransfer[]
+  aiJobs                        AIProcessingJob[]  @relation("aiJobCase")
+  aiTimelineEvents              AITimelineEvent[]  @relation("caseAiTimeline")
 
   createdAt                     DateTime  @default(now())
   updatedAt                     DateTime  @updatedAt
@@ -450,6 +459,19 @@ model CaseDocument {
   @@index([uploadedByDepartmentId])
   @@index([createdAt])
   @@index([sha256Hash]) // duplicate awareness (spec §66/§67) — hash is NOT a business identifier
+
+  // Phase 5 AI-derived data (spec §50) — every relation below is DERIVED; originals stay untouched
+  aiJobs              AIProcessingJob[]          @relation("aiJobDocument")
+  texts               DocumentText[]             @relation("documentText")
+  ocrResults          OcrResult[]                @relation("documentOcr")
+  aiClassifications   AIDocumentClassification[] @relation("documentAiClassification")
+  entities            ExtractedEntity[]          @relation("documentEntity")
+  aiSummaries         AIDocumentSummary[]        @relation("documentAiSummary")
+  aiTimelineEvents    AITimelineEvent[]          @relation("documentAiTimeline")
+  chunks              DocumentChunk[]            @relation("documentChunk")
+  embeddings          DocumentEmbedding[]        @relation("documentEmbedding")
+  aiRelSuggestionsAsSource AIRelationshipSuggestion[] @relation("aiRelSource")
+  aiRelSuggestionsAsTarget AIRelationshipSuggestion[] @relation("aiRelTarget")
 }
 
 model DocumentRelationship {
@@ -787,4 +809,396 @@ model LedgerAnchor {
 
   @@index([provider])
   @@index([anchoredAt])
+}
+
+// ============================================================
+// PHASE 5 — AI Document Intelligence (spec §5/§28/§39/§50).
+//
+// DERIVED-DATA PRINCIPLE (spec §2): every AI_* / Ocr* / DocumentText /
+// DocumentChunk / DocumentEmbedding row is AI-DERIVED data. It never
+// overwrites authoritative records (CaseDocument type/status, Evidence
+// custody, official CaseEvent timeline). Human review is tracked on
+// each result via reviewStatus; reviewer identity always comes from
+// the authenticated session (spec §30), never from the client.
+//
+// PROVENANCE (spec §40): results carry modelProvider/modelName/
+// modelVersion + jobId + source references so any result can be
+// traced to document → page → source text.
+// ============================================================
+
+model AIProcessingJob {
+  id                      String    @id @default(cuid())
+  jobId                   String    @unique // public identity: AIJ-2026-000001
+  documentId              String?   // null for case-wide jobs (CASE_SUMMARY etc.)
+  document                CaseDocument? @relation("aiJobDocument", fields: [documentId], references: [id], onDelete: Restrict)
+  documentRef             String?   // public DOC id (denormalized for display)
+  caseId                  String
+  case                    Case      @relation("aiJobCase", fields: [caseId], references: [id], onDelete: Restrict)
+  caseRef                 String    // public CASE id
+  requestedByOfficerId    String
+  requestedByOfficer      Officer   @relation("aiJobRequester", fields: [requestedByOfficerId], references: [id], onDelete: Restrict)
+  requestedByDepartmentId String
+  requestedByDepartment   Department @relation("aiJobRequesterDepartment", fields: [requestedByDepartmentId], references: [id], onDelete: Restrict)
+  jobType                 String    // AI_JOB_TYPES
+  status                  String    @default("QUEUED") // AI_JOB_STATUSES
+  priority                String    @default("NORMAL") // AI_JOB_PRIORITIES
+  stage                   String?   // human-readable current pipeline stage
+  modelProvider           String?
+  modelName               String?
+  modelVersion            String?
+  startedAt               DateTime?
+  completedAt             DateTime?
+  errorCode               String?   // safe machine code — never an exception trace (spec §5)
+  errorMessage            String?   // safe user-facing message
+  resultSummary           String?   // JSON: produced artifact references/counts
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+
+  @@index([documentId])
+  @@index([caseId])
+  @@index([caseRef])
+  @@index([status])
+  @@index([jobType])
+  @@index([requestedByOfficerId])
+  @@index([createdAt])
+}
+
+// Normalized text (spec §9): the analysis input. One current row per
+// page; MANUAL_CORRECTION supersedes the previous value, which is
+// snapshotted into AIResultVersion before the update (spec §41/§29).
+model DocumentText {
+  id                   String   @id @default(cuid())
+  documentId           String
+  document             CaseDocument @relation("documentText", fields: [documentId], references: [id], onDelete: Restrict)
+  pageNumber           Int      // 0 = document-level (formats without pages)
+  sectionIdentifier    String?
+  text                 String
+  language             String?  // EN | HI | MIXED | LOW_CONFIDENCE variants
+  languageConfidence   Float?
+  sourceType           String   // TEXT_SOURCE_TYPES: NATIVE_TEXT | OCR | MANUAL_CORRECTION
+  sourceReference      String?  // extractor/provider/officer provenance string
+  extractionConfidence Float?
+  jobId                String?  // AIJ- reference of the producing job
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@unique([documentId, pageNumber])
+  @@index([documentId])
+}
+
+// Raw OCR output per page (spec §7): DERIVED, never replaces the file.
+model OcrResult {
+  id             String   @id @default(cuid())
+  documentId     String
+  document       CaseDocument @relation("documentOcr", fields: [documentId], references: [id], onDelete: Restrict)
+  pageNumber     Int
+  recognizedText String
+  language       String?
+  confidence     Float?
+  boundingBoxes  String?  // JSON (provider-dependent; may be absent)
+  provider       String
+  modelVersion   String?
+  jobId          String?
+  createdAt      DateTime @default(now())
+
+  @@unique([documentId, pageNumber, provider])
+  @@index([documentId])
+}
+
+model AIDocumentClassification {
+  id                  String    @id @default(cuid())
+  documentId          String
+  document            CaseDocument @relation("documentAiClassification", fields: [documentId], references: [id], onDelete: Restrict)
+  caseRef             String    // public CASE id
+  suggestedType       String    // a DOCUMENT_TYPES value — SUGGESTION ONLY (spec §10)
+  suggestedCategory   String?
+  confidence          Float
+  reason              String?
+  sourceReference     String?
+  modelProvider       String
+  modelName           String
+  modelVersion        String?
+  reviewStatus        String    @default("PENDING") // PENDING|ACCEPTED|REJECTED|OVERRIDDEN
+  overrideType        String?   // human-corrected type when OVERRIDDEN (recorded on the suggestion — the authoritative document type is NEVER changed by AI or review)
+  reviewedByOfficerId String?
+  reviewedByOfficer   Officer?  @relation("aiClassificationReviewer", fields: [reviewedByOfficerId], references: [id], onDelete: Restrict)
+  reviewedAt          DateTime?
+  jobId               String?
+  createdAt           DateTime  @default(now())
+
+  @@index([documentId])
+  @@index([reviewStatus])
+}
+
+model ExtractedEntity {
+  id              String   @id @default(cuid())
+  documentId      String
+  document        CaseDocument @relation("documentEntity", fields: [documentId], references: [id], onDelete: Restrict)
+  caseRef         String   // public CASE id
+  entityType      String   // AI_ENTITY_TYPES
+  originalText    String
+  normalizedValue String?
+  pageNumber      Int
+  startOffset     Int?
+  endOffset       Int?
+  confidence      Float
+  sourceReference String?  // resolvable: "DOC-…|page 3|offset 120"
+  modelProvider   String
+  modelName       String
+  modelVersion    String?
+  reviewStatus    String   @default("PENDING") // PENDING|VERIFIED|REJECTED|OVERRIDDEN
+  reviewedByOfficerId String?
+  reviewedAt      DateTime?
+  jobId           String?
+  createdAt       DateTime @default(now())
+
+  @@index([documentId])
+  @@index([caseRef])
+  @@index([entityType])
+  @@index([reviewStatus])
+
+  matchesAsA EntityCandidateMatch[] @relation("entityMatchA")
+  matchesAsB EntityCandidateMatch[] @relation("entityMatchB")
+}
+
+// Candidate similarity only — NEVER an automatic merge (spec §13).
+model EntityCandidateMatch {
+  id                  String   @id @default(cuid())
+  entityAId           String
+  entityA             ExtractedEntity @relation("entityMatchA", fields: [entityAId], references: [id], onDelete: Restrict)
+  entityBId           String
+  entityB             ExtractedEntity @relation("entityMatchB", fields: [entityBId], references: [id], onDelete: Restrict)
+  similarityScore     Float
+  matchReason         String?
+  status              String   @default("SUGGESTED") // SUGGESTED|CONFIRMED|REJECTED
+  reviewedByOfficerId String?
+  reviewedByOfficer   Officer? @relation("entityMatchReviewer", fields: [reviewedByOfficerId], references: [id], onDelete: Restrict)
+  reviewedAt          DateTime?
+  createdAt           DateTime @default(now())
+
+  @@unique([entityAId, entityBId])
+  @@index([status])
+}
+
+// Versioned by design: reprocessing creates a NEW row (spec §29);
+// the latest row per (documentId, summaryType) is the current one.
+model AIDocumentSummary {
+  id               String   @id @default(cuid())
+  documentId       String?  // null for CASE_CONTEXT case-level summaries (spec §16)
+  document         CaseDocument? @relation("documentAiSummary", fields: [documentId], references: [id], onDelete: Restrict)
+  caseRef          String
+  summaryType      String   // SHORT | DETAILED | EXECUTIVE | CASE_CONTEXT
+  summaryText      String
+  sourceReferences String?  // JSON [{documentRef, pageNumber, section, quote}]
+  modelProvider    String
+  modelName        String
+  modelVersion     String?
+  jobId            String?
+  reviewStatus     String   @default("PENDING")
+  createdAt        DateTime @default(now())
+
+  @@index([documentId, summaryType])
+  @@index([reviewStatus])
+}
+
+// AI timeline SUGGESTIONS (spec §17/§71) — never official case events.
+model AITimelineEvent {
+  id              String    @id @default(cuid())
+  caseId          String
+  case            Case      @relation("caseAiTimeline", fields: [caseId], references: [id], onDelete: Restrict)
+  caseRef         String    // public CASE id
+  documentId      String?
+  document        CaseDocument? @relation("documentAiTimeline", fields: [documentId], references: [id], onDelete: Restrict)
+  documentRef     String?
+  eventDate       DateTime?
+  eventDateText   String?   // raw date text found in the source (honest when parse fails)
+  eventTime       String?
+  eventType       String    // AI_TIMELINE_EVENT_TYPES
+  description     String
+  sourceReference String?
+  confidence      Float
+  modelProvider   String
+  modelName       String
+  modelVersion    String?
+  reviewStatus    String    @default("PENDING")
+  jobId           String?
+  createdAt       DateTime  @default(now())
+
+  @@index([caseRef])
+  @@index([eventType])
+  @@index([reviewStatus])
+
+  conflictsAsA AITimelineConflict[] @relation("conflictA")
+  conflictsAsB AITimelineConflict[] @relation("conflictB")
+}
+
+// Surfaced contradiction (spec §18) — the AI never decides which
+// date/fact is correct; only human review resolves (or dismisses).
+model AITimelineConflict {
+  id                  String    @id @default(cuid())
+  caseRef             String
+  eventAId            String
+  eventA              AITimelineEvent @relation("conflictA", fields: [eventAId], references: [id], onDelete: Restrict)
+  eventBId            String
+  eventB              AITimelineEvent @relation("conflictB", fields: [eventBId], references: [id], onDelete: Restrict)
+  conflictType        String    // DATE_MISMATCH | TIME_MISMATCH | FACT_MISMATCH
+  description         String?
+  status              String    @default("UNREVIEWED") // UNREVIEWED|RESOLVED|DISMISSED
+  resolvedByOfficerId String?
+  resolutionNote      String?
+  resolvedAt          DateTime?
+  createdAt           DateTime  @default(now())
+
+  @@unique([eventAId, eventBId])
+  @@index([caseRef])
+}
+
+// Deterministic chunks (spec §19) — page-provenanced, never mixing
+// unrelated documents; the unit of embedding and retrieval.
+model DocumentChunk {
+  id         String   @id @default(cuid())
+  documentId String
+  document   CaseDocument @relation("documentChunk", fields: [documentId], references: [id], onDelete: Restrict)
+  caseRef    String
+  pageNumber Int
+  chunkIndex Int
+  text       String
+  tokenCount Int
+  jobId      String?
+  createdAt  DateTime @default(now())
+
+  @@unique([documentId, pageNumber, chunkIndex])
+  @@index([documentId])
+  @@index([caseRef])
+
+  embedding DocumentEmbedding? @relation("chunkEmbedding")
+}
+
+// Vector store (spec §21): SQLite MVP stores the vector as JSON;
+// the production path is PostgreSQL + pgvector (documented, not
+// claimed here — the project runs SQLite). Authorization metadata
+// (caseRef/documentId) is denormalized onto every vector so search
+// scope can be enforced server-side in the query itself (spec §22).
+model DocumentEmbedding {
+  id           String   @id @default(cuid())
+  chunkId      String   @unique
+  chunk        DocumentChunk @relation("chunkEmbedding", fields: [chunkId], references: [id], onDelete: Restrict)
+  documentId   String
+  document     CaseDocument @relation("documentEmbedding", fields: [documentId], references: [id], onDelete: Restrict)
+  caseRef      String
+  provider     String
+  modelName    String
+  modelVersion String?
+  dimension    Int
+  vectorJson   String   // JSON number array (pgvector replacement — MVP store)
+  jobId        String?
+  createdAt    DateTime @default(now())
+
+  @@index([documentId])
+  @@index([caseRef])
+  @@index([provider, modelName])
+}
+
+// AI relationship SUGGESTION (spec §32) — Phase 6 will consume only
+// HUMAN-CONFIRMED relationships for the knowledge graph (spec §67).
+model AIRelationshipSuggestion {
+  id                 String    @id @default(cuid())
+  caseRef            String
+  sourceDocumentId   String
+  sourceDocument     CaseDocument @relation("aiRelSource", fields: [sourceDocumentId], references: [id], onDelete: Restrict)
+  sourceDocumentRef  String
+  targetDocumentId   String
+  targetDocument     CaseDocument @relation("aiRelTarget", fields: [targetDocumentId], references: [id], onDelete: Restrict)
+  targetDocumentRef  String
+  relationshipType   String    // a DOCUMENT_RELATIONSHIP_TYPES value — suggestion only
+  confidence         Float
+  reason             String?
+  sourceReferences   String?   // JSON
+  status             String    @default("SUGGESTED") // SUGGESTED|CONFIRMED|REJECTED
+  reviewedByOfficerId String?
+  reviewedByOfficer  Officer?  @relation("aiRelationshipReviewer", fields: [reviewedByOfficerId], references: [id], onDelete: Restrict)
+  reviewedAt         DateTime?
+  jobId              String?
+  createdAt          DateTime  @default(now())
+
+  @@unique([sourceDocumentId, targetDocumentId, relationshipType])
+  @@index([caseRef])
+  @@index([status])
+}
+
+// Result lineage (spec §29): every regeneration records the version
+// chain; old outputs stay available and are never overwritten.
+model AIResultVersion {
+  id               String   @id @default(cuid())
+  resultType       String   // DOCUMENT_TEXT|CLASSIFICATION|SUMMARY|TIMELINE|EMBEDDING|ENTITIES
+  sourceRef        String   // display reference (e.g. DOC id)
+  sourceInternalId String   // internal id of the result container row
+  versionNumber    Int
+  modelProvider    String
+  modelName        String
+  modelVersion     String?
+  inputReference   String?  // hash/reference of the inputs used
+  outputReference  String?  // JSON snapshot of the superseded output
+  createdAt        DateTime @default(now())
+
+  @@unique([resultType, sourceInternalId, versionNumber])
+  @@index([resultType, sourceInternalId])
+}
+
+// Human review record (spec §30). Reviewer identity is ALWAYS the
+// authenticated session's officer — the client never supplies it.
+model AIReview {
+  id                   String   @id @default(cuid())
+  resultType           String   // CLASSIFICATION|ENTITY|SUMMARY|TIMELINE|RELATIONSHIP|ENTITY_MATCH|TIMELINE_CONFLICT
+  resultId             String   // internal id of the reviewed row
+  resultRef            String   // display reference for the review queue
+  reviewerOfficerId    String
+  reviewerOfficer      Officer  @relation("aiReviewReviewer", fields: [reviewerOfficerId], references: [id], onDelete: Restrict)
+  reviewerDepartmentId String
+  reviewerDepartment   Department @relation("aiReviewDepartment", fields: [reviewerDepartmentId], references: [id], onDelete: Restrict)
+  status               String   // VERIFIED|REJECTED|OVERRIDDEN (PENDING lives on the result row)
+  comment              String?
+  createdAt            DateTime @default(now())
+
+  @@index([resultType, resultId])
+  @@index([reviewerOfficerId])
+  @@index([status])
+}
+
+// Model registry (spec §28) — every AI result records its provider/
+// model/version; this table is the inspectable inventory of models.
+model AIModelRegistry {
+  id              String   @id @default(cuid())
+  provider        String
+  modelName       String
+  modelVersion    String?
+  task            String   // AI_MODEL_TASKS
+  languageSupport String?  // JSON array, e.g. ["en","hi"]
+  enabled         Boolean  @default(true)
+  configuration   String?  // JSON (non-secret configuration only)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([provider, modelName, task])
+  @@index([task])
+  @@index([enabled])
+}
+
+// Administrative AI configuration (spec §56). Singleton row; changes
+// require AI_CONFIGURE permission and create an audit event.
+model AIConfig {
+  id                                String   @id @default("SINGLETON")
+  aiEnabled                         Boolean  @default(true)
+  localOnly                         Boolean  @default(true) // LOCAL_ONLY: no case content to external providers (spec §37)
+  llmProvider                       String   @default("heuristic") // heuristic (local baseline) | zai (external, blocked while localOnly)
+  ocrProvider                       String   @default("tesseract")
+  embeddingProvider                 String   @default("local-hashing")
+  maxContextChars                   Int      @default(12000)
+  maxConcurrentJobs                 Int      @default(2)
+  classificationConfidenceThreshold Float    @default(0.55)
+  qaRetrievalThreshold              Float    @default(0.18)
+  autoProcessOnCommit               Boolean  @default(true)
+  allowedProviders                  String?  // JSON allowlist
+  updatedAt                         DateTime @updatedAt
+  updatedByOfficerId                String?
 }

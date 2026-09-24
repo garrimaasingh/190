@@ -58,6 +58,15 @@ export const PERMISSIONS = {
   AUDIT_VERIFY: "audit.verify",
   LEDGER_MANAGE: "ledger.manage",
   REPORT_GENERATE: "report.generate",
+  // Phase 5 — AI document intelligence. Role permission is necessary
+  // but NOT sufficient: AI routes additionally enforce case access
+  // AND document classification clearance server-side (spec §22/§34).
+  // AI_USE covers assistive operations (process/search/ask/view);
+  // AI_REVIEW covers human verification of AI results (spec §30);
+  // AI_CONFIGURE covers administrative configuration (spec §56).
+  AI_USE: "ai.use",
+  AI_REVIEW: "ai.review",
+  AI_CONFIGURE: "ai.configure",
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -99,6 +108,9 @@ const SYSTEM_ADMIN: Permission[] = [
   PERMISSIONS.AUDIT_VERIFY,
   PERMISSIONS.LEDGER_MANAGE,
   PERMISSIONS.REPORT_GENERATE,
+  PERMISSIONS.AI_USE,
+  PERMISSIONS.AI_REVIEW,
+  PERMISSIONS.AI_CONFIGURE,
 ];
 
 const DEPARTMENT_ADMIN: Permission[] = [
@@ -131,6 +143,8 @@ const DEPARTMENT_ADMIN: Permission[] = [
   PERMISSIONS.EVIDENCE_TRANSFER_INITIATE,
   PERMISSIONS.EVIDENCE_TRANSFER_DECIDE,
   PERMISSIONS.REPORT_GENERATE,
+  PERMISSIONS.AI_USE,
+  PERMISSIONS.AI_REVIEW,
 ];
 
 const OFFICER: Permission[] = [
@@ -155,6 +169,7 @@ const OFFICER: Permission[] = [
   PERMISSIONS.EVIDENCE_TRANSFER_INITIATE,
   PERMISSIONS.EVIDENCE_TRANSFER_DECIDE,
   PERMISSIONS.REPORT_GENERATE,
+  PERMISSIONS.AI_USE,
 ];
 
 const AUDITOR: Permission[] = [
@@ -170,8 +185,10 @@ const AUDITOR: Permission[] = [
   PERMISSIONS.AUDIT_READ, // Phase 4: search/inspect the immutable audit trail
   PERMISSIONS.AUDIT_VERIFY, // Phase 4: run chain verification (read-only operation)
   PERMISSIONS.REPORT_GENERATE, // Phase 4: read-level report generation
-  // Deliberately ABSENT: audit mutation (does not exist), case/
-  // document/evidence write permissions, LEDGER_MANAGE.
+  PERMISSIONS.AI_USE, // Phase 5: assistive AI (search/ask/view) — clearance still applies
+  // Deliberately ABSENT: AI_REVIEW (auditors observe, they do not verify AI results —
+  // verification is an operational act), AI_CONFIGURE, audit mutation (does not exist),
+  // case/document/evidence write permissions, LEDGER_MANAGE.
 ];
 
 export const ROLE_PERMISSIONS: Record<string, Permission[]> = {

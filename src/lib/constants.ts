@@ -661,4 +661,241 @@ export const ERROR_CODES = {
   AUDIT_CHAIN_INVALID: "AUDIT_CHAIN_INVALID",
   LEDGER_ERROR: "LEDGER_ERROR",
   INTERNAL_ERROR: "INTERNAL_ERROR",
+  // Phase 5 — AI
+  AI_DISABLED: "AI_DISABLED",
+  AI_NOT_FOUND: "AI_NOT_FOUND",
+  AI_ACCESS_DENIED: "AI_ACCESS_DENIED",
+  AI_JOB_NOT_FOUND: "AI_JOB_NOT_FOUND",
+  AI_JOB_NOT_CANCELLABLE: "AI_JOB_NOT_CANCELLABLE",
+  AI_PROVIDER_UNAVAILABLE: "AI_PROVIDER_UNAVAILABLE",
+  AI_PROVIDER_BLOCKED_LOCAL_ONLY: "AI_PROVIDER_BLOCKED_LOCAL_ONLY",
+  AI_LANGUAGE_PACK_UNAVAILABLE: "AI_LANGUAGE_PACK_UNAVAILABLE",
+  AI_EXTRACTION_FAILED: "AI_EXTRACTION_FAILED",
+  AI_OUTPUT_INVALID: "AI_OUTPUT_INVALID",
+  AI_RATE_LIMITED: "AI_RATE_LIMITED",
+  AI_REVIEW_NOT_ALLOWED: "AI_REVIEW_NOT_ALLOWED",
+  AI_REVIEW_ALREADY_DECIDED: "AI_REVIEW_ALREADY_DECIDED",
+  NOT_FOUND_IN_AUTHORIZED_SOURCES: "NOT_FOUND_IN_AUTHORIZED_SOURCES",
 } as const;
+
+// ============================================================
+// PHASE 5 — AI Document Intelligence (spec §5/§10/§11/§14/§17/
+// §28/§30/§39/§56). Registries follow the platform pattern:
+// extensible lists defined ONCE here; business logic, API
+// validation and UI read them from this module / GET /api/v1/meta.
+//
+// PRINCIPLE (spec §2): every registry below describes AI-DERIVED
+// data. Nothing in Phase 5 writes to authoritative records —
+// suggestions are stored with a review status and only a human
+// decision (via the review APIs) changes any authoritative field.
+// ============================================================
+
+export const AI_JOB_TYPES = [
+  "OCR",
+  "TEXT_EXTRACTION",
+  "CLASSIFICATION",
+  "ENTITY_EXTRACTION",
+  "SUMMARY",
+  "TIMELINE_EXTRACTION",
+  "EMBEDDING",
+  "SEMANTIC_INDEXING",
+  "RELATIONSHIP_DISCOVERY",
+  "FULL_ANALYSIS",
+] as const;
+export type AIJobType = (typeof AI_JOB_TYPES)[number];
+
+export const AI_JOB_STATUSES = [
+  "QUEUED",
+  "PROCESSING",
+  "COMPLETED",
+  "FAILED",
+  "PARTIAL",
+  "CANCELLED",
+] as const;
+export type AIJobStatus = (typeof AI_JOB_STATUSES)[number];
+
+export const AI_JOB_PRIORITIES = ["LOW", "NORMAL", "HIGH"] as const;
+
+// Terminal statuses that free the worker slot (spec §5)
+export const AI_JOB_TERMINAL_STATUSES: string[] = ["COMPLETED", "FAILED", "PARTIAL", "CANCELLED"];
+
+// Document-level AI status for list/detail display (spec §48)
+export const DOCUMENT_AI_STATUSES = [
+  "AI_NOT_PROCESSED",
+  "AI_QUEUED",
+  "AI_PROCESSING",
+  "AI_READY",
+  "AI_PARTIALLY_PROCESSED",
+  "AI_PROCESSING_FAILED",
+] as const;
+export type DocumentAIStatus = (typeof DOCUMENT_AI_STATUSES)[number];
+
+// Normalized-text provenance (spec §9). MANUAL_CORRECTION creates a
+// new derived text version — it never modifies the original file.
+export const TEXT_SOURCE_TYPES = ["NATIVE_TEXT", "OCR", "MANUAL_CORRECTION"] as const;
+export type TextSourceType = (typeof TEXT_SOURCE_TYPES)[number];
+
+// Entity registry (spec §11) — explicitly extensible.
+export const AI_ENTITY_TYPES = [
+  "PERSON",
+  "ORGANIZATION",
+  "DEPARTMENT",
+  "OFFICER",
+  "LOCATION",
+  "ADDRESS",
+  "DATE",
+  "TIME",
+  "PHONE_NUMBER",
+  "EMAIL",
+  "CASE_NUMBER",
+  "FIR_NUMBER",
+  "DOCUMENT_NUMBER",
+  "VEHICLE",
+  "DEVICE",
+  "EVIDENCE_ID",
+  "COURT",
+  "POLICE_STATION",
+  "FORENSIC_LAB",
+  "LEGAL_SECTION",
+  "OTHER",
+] as const;
+export type AIEntityType = (typeof AI_ENTITY_TYPES)[number];
+
+export const AI_SUMMARY_TYPES = ["SHORT", "DETAILED", "EXECUTIVE", "CASE_CONTEXT"] as const;
+export type AISummaryType = (typeof AI_SUMMARY_TYPES)[number];
+
+// AI timeline event types (spec §17) — suggestions only, never
+// official CaseEvents (spec §71 separation).
+export const AI_TIMELINE_EVENT_TYPES = [
+  "CASE_EVENT",
+  "INCIDENT",
+  "COMPLAINT",
+  "FIR",
+  "SEARCH",
+  "SEIZURE",
+  "ARREST",
+  "TRANSFER",
+  "FORENSIC_EXAMINATION",
+  "COURT_HEARING",
+  "COURT_ORDER",
+  "DOCUMENT_CREATED",
+  "DOCUMENT_SUBMITTED",
+  "OTHER",
+] as const;
+export type AITimelineEventType = (typeof AI_TIMELINE_EVENT_TYPES)[number];
+
+export const AI_TIMELINE_CONFLICT_TYPES = ["DATE_MISMATCH", "TIME_MISMATCH", "FACT_MISMATCH"] as const;
+export const AI_TIMELINE_CONFLICT_STATUSES = ["UNREVIEWED", "RESOLVED", "DISMISSED"] as const;
+
+// Review statuses on AI result rows (spec §10/§30)
+export const AI_RESULT_REVIEW_STATUSES = ["PENDING", "VERIFIED", "ACCEPTED", "REJECTED", "OVERRIDDEN"] as const;
+export type AIResultReviewStatus = (typeof AI_RESULT_REVIEW_STATUSES)[number];
+
+// Suggestion statuses (spec §13/§32) — human confirmation required
+export const AI_SUGGESTION_STATUSES = ["SUGGESTED", "CONFIRMED", "REJECTED"] as const;
+
+export const AI_REVIEW_ACTION_STATUSES = ["VERIFIED", "REJECTED", "OVERRIDDEN"] as const;
+export type AIReviewActionStatus = (typeof AI_REVIEW_ACTION_STATUSES)[number];
+
+// Result types addressable by the review queue (spec §45)
+export const AI_REVIEWABLE_RESULT_TYPES = [
+  "CLASSIFICATION",
+  "ENTITY",
+  "SUMMARY",
+  "TIMELINE",
+  "RELATIONSHIP",
+  "ENTITY_MATCH",
+  "TIMELINE_CONFLICT",
+] as const;
+export type AIReviewableResultType = (typeof AI_REVIEWABLE_RESULT_TYPES)[number];
+
+// Model registry tasks (spec §28)
+export const AI_MODEL_TASKS = [
+  "TEXT_EXTRACTION",
+  "OCR",
+  "LANGUAGE_DETECTION",
+  "EMBEDDING",
+  "CLASSIFICATION",
+  "ENTITY_EXTRACTION",
+  "SUMMARIZATION",
+  "QUESTION_ANSWERING",
+] as const;
+export type AIModelTask = (typeof AI_MODEL_TASKS)[number];
+
+// Provider registries (spec §27/§7 OCR/§20 embeddings). HYPERLEDGER-
+// style honesty rule applies: a provider listed here exists as an
+// adapter; only "active" providers are claimed as implemented.
+export const AI_LLM_PROVIDERS = ["heuristic", "zai"] as const; // zai = external LLM (blocked while LOCAL_ONLY)
+export const AI_OCR_PROVIDERS = ["tesseract"] as const;
+export const AI_EMBEDDING_PROVIDERS = ["local-hashing"] as const;
+export const AI_ACTIVE_LLM_PROVIDER = "heuristic"; // default — local, deterministic, no data leaves the host
+
+// Languages (spec §7/§54): English + Hindi foundation. OCR actually
+// available depends on installed tesseract language packs — the OCR
+// provider reports AI_LANGUAGE_PACK_UNAVAILABLE instead of pretending.
+export const AI_LANGUAGES = ["EN", "HI", "MIXED", "LOW_CONFIDENCE"] as const;
+export const AI_LANGUAGE_LABELS: Record<string, string> = {
+  EN: "English",
+  HI: "Hindi (Devanagari)",
+  MIXED: "Mixed English/Hindi",
+  LOW_CONFIDENCE: "Undetermined (low confidence)",
+};
+
+// Prompt-injection defense (spec §35): trust hierarchy is enforced in
+// AIContextBuilder — retrieved content is ALWAYS wrapped in explicit
+// delimiters and treated as untrusted data, never as instructions.
+export const AI_SOURCE_DELIMITER_OPEN = "<authorized_source>";
+export const AI_SOURCE_DELIMITER_CLOSE = "</authorized_source>";
+export const AI_INJECTION_PATTERNS: RegExp[] = [
+  /ignore\s+(all\s+)?(previous|prior|above)\s+instructions?/i,
+  /disregard\s+(all\s+)?(previous|prior|above)\s+instructions?/i,
+  /reveal\s+(all\s+)?(confidential|secret|hidden)/i,
+  /you\s+are\s+now\s+(a|an)\s+/i,
+  /system\s*prompt|developer\s*mode|jailbreak/i,
+  /<\s*\/?\s*(system|instructions?)\s*>/i,
+];
+
+// AI audit event registry (spec §39) — appended to the Phase 4
+// immutable hash chain. References only; never document content.
+export const AI_AUDIT_EVENT_TYPES = [
+  "AI_JOB_CREATED",
+  "AI_JOB_STARTED",
+  "AI_JOB_COMPLETED",
+  "AI_JOB_FAILED",
+  "AI_JOB_CANCELLED",
+  "AI_OCR_COMPLETED",
+  "AI_TEXT_CORRECTED",
+  "AI_CLASSIFICATION_CREATED",
+  "AI_ENTITY_EXTRACTION_COMPLETED",
+  "AI_SUMMARY_CREATED",
+  "AI_TIMELINE_CREATED",
+  "AI_EMBEDDING_COMPLETED",
+  "AI_SEARCH_EXECUTED",
+  "AI_QA_EXECUTED",
+  "AI_RESULT_VIEWED",
+  "AI_RESULT_VERIFIED",
+  "AI_RESULT_REJECTED",
+  "AI_RESULT_OVERRIDDEN",
+  "AI_PROVIDER_FAILURE",
+  "AI_ACCESS_DENIED",
+  "AI_CONFIG_CHANGED",
+] as const;
+export type AIAuditEventType = (typeof AI_AUDIT_EVENT_TYPES)[number];
+
+export const AI_EVENT_CATEGORIES: Record<string, string[]> = {
+  AI: [...AI_AUDIT_EVENT_TYPES],
+};
+
+// Rate limits for expensive AI operations (spec §34/§49/§55).
+// Per-officer sliding windows — reuse the Phase 1 limiter.
+export const AI_RATE_LIMITS = {
+  PROCESS: { limit: 10, windowMs: 5 * 60 * 1000 }, // start jobs
+  SEARCH: { limit: 30, windowMs: 5 * 60 * 1000 }, // semantic/hybrid/keyword
+  ASK: { limit: 15, windowMs: 5 * 60 * 1000 }, // case Q&A
+  SUMMARY: { limit: 10, windowMs: 5 * 60 * 1000 }, // case summary/timeline generation
+} as const;
+
+// Embedding model facts (spec §20) — local deterministic provider.
+export const AI_EMBEDDING_DIMENSION = 256;
+export const AI_CHUNK_TARGET_CHARS = 800;
+export const AI_CHUNK_MAX_CHARS = 1000;

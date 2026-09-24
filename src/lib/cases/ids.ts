@@ -180,3 +180,23 @@ export async function generateAnchorId(year: number): Promise<string> {
     async (candidate) => !!(await db.ledgerAnchor.findUnique({ where: { anchorId: candidate } }))
   );
 }
+
+// Phase 5 — AI processing job ids (AIJ-2026-NNNNNN). Year-scoped,
+// sequence from the max well-formed suffix (same correctness rule
+// as every generator in this module).
+export async function generateAIJobId(): Promise<string> {
+  const year = new Date().getUTCFullYear();
+  const prefix = `AIJ-${year}-`;
+  return nextSequenceId(
+    prefix,
+    6,
+    async () =>
+      (
+        await db.aIProcessingJob.findMany({
+          where: { jobId: { startsWith: prefix } },
+          select: { jobId: true },
+        })
+      ).map((r) => r.jobId),
+    async (candidate) => !!(await db.aIProcessingJob.findUnique({ where: { jobId: candidate } }))
+  );
+}

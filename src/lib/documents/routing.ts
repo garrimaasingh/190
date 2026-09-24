@@ -29,6 +29,7 @@ export interface LoadedDocument {
     storageKey: string;
     mimeType: string;
     originalFilename: string;
+    fileExtension: string;
     fileSize: number;
     sha256Hash: string;
   };
@@ -53,6 +54,7 @@ export async function loadDocumentForView(
       storageKey: true,
       mimeType: true,
       originalFilename: true,
+      fileExtension: true,
       fileSize: true,
       sha256Hash: true,
     },

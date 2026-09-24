@@ -20,6 +20,7 @@ import { StatusBadge } from "@/components/platform/common";
 import { EmptyState, ErrorState, LoadingState, FieldError } from "@/components/platform/common";
 import { DocumentsSection } from "@/components/platform/DocumentsSection";
 import { EvidenceSection } from "@/components/platform/EvidenceSection";
+import { CaseAIPanel } from "@/components/platform/CaseAIPanel";
 import type { CaseIntegritySummary } from "@/lib/client/api";
 import { PriorityBadge } from "@/components/platform/views/CasesView";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -435,6 +436,13 @@ export function CaseDashboardView({ caseRef, onBack, onUploadDocument, onOpenDoc
         onRegister={onRegisterEvidence}
         onOpenEvidence={onOpenEvidence}
       />
+
+      {/* ---------- AI CASE INTELLIGENCE (Phase 5, spec §44) ---------- */}
+      <CaseAIPanel
+        caseRef={caseRef}
+        canReview={!!me?.permissions?.includes("ai.review")}
+        onOpenDocument={onOpenDocument}
+ />
 
       {/* ---------- INTEGRITY SUMMARY (Phase 4, spec §62) ---------- */}
       {integrity && (

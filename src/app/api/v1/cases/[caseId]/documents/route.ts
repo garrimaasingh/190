@@ -11,6 +11,7 @@ import {
 } from "@/lib/constants";
 import { canUploadToCase } from "@/lib/documents/authorization";
 import { uploadAndCommit, toDocumentSummary, type DocumentUploadInput } from "@/lib/documents/service";
+import { autoEnqueueAfterCommit } from "@/lib/ai/jobs";
 import { recordDocumentEvent } from "@/lib/documents/events";
 import { ERROR_CODES } from "@/lib/constants";
 
@@ -114,6 +115,17 @@ export async function POST(req: Request, { params }: { params: Promise<{ caseId:
         202
       );
     }
+
+    // Phase 5 (spec §4): after successful commitment, request AI
+    // processing ASYNCHRONOUSLY — never inside the upload path, and
+    // a failure here must never affect the committed document.
+    void (await autoEnqueueAfterCommit({
+      ctx,
+      caseInternalId: caseRow.id,
+      caseRef: caseRow.caseId,
+      documentInternalId: outcome.document.id,
+      documentRef: outcome.document.documentId,
+    }));
 
     return jsonOk(
       {

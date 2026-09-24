@@ -12,6 +12,7 @@ import {
   type Meta,
 } from "@/lib/client/api";
 import { useAuth } from "@/lib/client/store";
+import { DocumentAIPanel } from "../DocumentAIPanel";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -340,6 +341,16 @@ export function DocumentDetailsView({
       {/* SYSTEM_ADMIN controlled integrity verification (spec §21) */}
       {isSystemAdmin && doc.status !== "QUARANTINED" && (
         <IntegrityVerifier caseRef={caseRef} documentId={doc.id} />
+      )}
+
+      {/* Phase 5 — AI Intelligence panel (spec §43) */}
+      {doc.status !== "QUARANTINED" && (
+        <DocumentAIPanel
+          caseRef={caseRef}
+          documentRef={doc.id}
+          canReview={!!me?.permissions?.includes("ai.review")}
+          onOpenDocument={onOpenDocument}
+        />
       )}
 
       {actionError && <FieldError message={actionError} />}

@@ -26,6 +26,13 @@ def daemonize() -> None:
 
 
 def main() -> None:
+    # Kill any previous dev server bound to :3000 so a stale process
+    # never keeps serving old code after a restart (ops lesson from
+    # Phase 5: `start-dev-daemon` while a server is running is a NO-OP
+    # that silently leaves old code live).
+    os.system("fuser -k 3000/tcp >/dev/null 2>&1 || true")
+    import time
+    time.sleep(1.5)
     daemonize()
     os.chdir("/home/z/my-project")
     os.execvp("bun", ["bun", "run", "dev"])

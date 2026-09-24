@@ -37,6 +37,18 @@ import {
   AUDIT_EVENT_TYPES,
   AUDIT_EVENT_CATEGORIES,
   LEDGER_ADAPTERS,
+  // Phase 5
+  AI_JOB_TYPES,
+  AI_JOB_STATUSES,
+  AI_ENTITY_TYPES,
+  AI_SUMMARY_TYPES,
+  AI_TIMELINE_EVENT_TYPES,
+  AI_MODEL_TASKS,
+  AI_LANGUAGES,
+  AI_LANGUAGE_LABELS,
+  DOCUMENT_AI_STATUSES,
+  AI_REVIEWABLE_RESULT_TYPES,
+  AI_AUDIT_EVENT_TYPES,
   LEDGER_ACTIVE_ADAPTER,
 } from "@/lib/constants";
 import { ROLE_PERMISSIONS } from "@/lib/permissions";
@@ -91,6 +103,18 @@ export async function GET(req: Request) {
       auditEventCategories: AUDIT_EVENT_CATEGORIES,
       ledgerAdapters: LEDGER_ADAPTERS,
       ledgerActiveAdapter: LEDGER_ACTIVE_ADAPTER,
+      // Phase 5 — AI reference data (spec §5/§10/§11/§14/§17/§28/§39)
+      aiJobTypes: AI_JOB_TYPES,
+      aiJobStatuses: AI_JOB_STATUSES,
+      aiEntityTypes: AI_ENTITY_TYPES,
+      aiSummaryTypes: AI_SUMMARY_TYPES,
+      aiTimelineEventTypes: AI_TIMELINE_EVENT_TYPES,
+      aiModelTasks: AI_MODEL_TASKS,
+      aiLanguages: AI_LANGUAGES,
+      aiLanguageLabels: AI_LANGUAGE_LABELS,
+      documentAiStatuses: DOCUMENT_AI_STATUSES,
+      aiReviewableResultTypes: AI_REVIEWABLE_RESULT_TYPES,
+      aiAuditEventTypes: AI_AUDIT_EVENT_TYPES,
     });
   } catch (err) {
     return handleApiError(err);

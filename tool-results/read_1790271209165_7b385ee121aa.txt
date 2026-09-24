@@ -1,0 +1,791 @@
+     1→     1→// ============================================================
+     2→     2→// PHASE 1 — Centralized Platform: Identity & Organization Layer
+     3→     3→// Domain model: Country → State → District → City → Department → Officers
+     4→     4→// NOTE: SQLite connector does not support Prisma enums; status/type
+     5→     5→// fields are strings validated at the application boundary (Zod)
+     6→     6→// and defined once in src/lib/constants.ts. Schema is portable to
+     7→     7→// PostgreSQL for later phases (swap datasource provider only).
+     8→     8→// ============================================================
+     9→     9→
+    10→    10→generator client {
+    11→    11→  provider = "prisma-client-js"
+    12→    12→}
+    13→    13→
+    14→    14→datasource db {
+    15→    15→  provider = "sqlite"
+    16→    16→  url      = env("DATABASE_URL")
+    17→    17→}
+    18→    18→
+    19→    19→model Country {
+    20→    20→  id        String   @id @default(cuid())
+    21→    21→  name      String   @unique
+    22→    22→  code      String   @unique
+    23→    23→  createdAt DateTime @default(now())
+    24→    24→  updatedAt DateTime @updatedAt
+    25→    25→  states    State[]
+    26→    26→}
+    27→    27→
+    28→    28→model State {
+    29→    29→  id         String     @id @default(cuid())
+    30→    30→  countryId  String
+    31→    31→  country    Country    @relation(fields: [countryId], references: [id], onDelete: Restrict)
+    32→    32→  name       String
+    33→    33→  code       String
+    34→    34→  status     String     @default("ACTIVE")
+    35→    35→  createdAt  DateTime   @default(now())
+    36→    36→  updatedAt  DateTime   @updatedAt
+    37→    37→  districts  District[]
+    38→    38→  cases      Case[]
+    39→    39→
+    40→    40→  @@unique([countryId, code])
+    41→    41→  @@unique([countryId, name])
+    42→    42→  @@index([countryId])
+    43→    43→}
+    44→    44→
+    45→    45→model District {
+    46→    46→  id          String      @id @default(cuid())
+    47→    47→  stateId     String
+    48→    48→  state       State       @relation(fields: [stateId], references: [id], onDelete: Restrict)
+    49→    49→  name        String
+    50→    50→  code        String
+    51→    51→  status      String      @default("ACTIVE")
+    52→    52→  createdAt   DateTime    @default(now())
+    53→    53→  updatedAt   DateTime    @updatedAt
+    54→    54→  cities      City[]
+    55→    55→  cases       Case[]
+    56→    56→
+    57→    57→  @@unique([stateId, code])
+    58→    58→  @@unique([stateId, name])
+    59→    59→  @@index([stateId])
+    60→    60→}
+    61→    61→
+    62→    62→model City {
+    63→    63→  id          String      @id @default(cuid())
+    64→    64→  districtId  String
+    65→    65→  district    District    @relation(fields: [districtId], references: [id], onDelete: Restrict)
+    66→    66→  name        String
+    67→    67→  code        String
+    68→    68→  status      String      @default("ACTIVE")
+    69→    69→  createdAt   DateTime    @default(now())
+    70→    70→  updatedAt   DateTime    @updatedAt
+    71→    71→  departments Department[]
+    72→    72→  cases       Case[]
+    73→    73→
+    74→    74→  @@unique([districtId, code])
+    75→    75→  @@unique([districtId, name])
+    76→    76→  @@index([districtId])
+    77→    77→}
+    78→    78→
+    79→    79→model Department {
+    80→    80→  id             String      @id @default(cuid())
+    81→    81→  departmentCode String      @unique
+    82→    82→  name           String
+    83→    83→  departmentType String
+    84→    84→  description    String?
+    85→    85→  logoPath       String?
+    86→    86→  logoMime       String?
+    87→    87→  stateId        String
+    88→    88→  districtId     String
+    89→    89→  cityId         String
+    90→    90→  city           City        @relation(fields: [cityId], references: [id], onDelete: Restrict)
+    91→    91→  status         String      @default("PENDING")
+    92→    92→  officers       Officer[]
+    93→    93→  casesAsOrigin      Case[]           @relation("caseOrigin")
+    94→    94→  casesAsCustodian   Case[]           @relation("caseCustodian")
+    95→    95→  caseParticipations CaseDepartment[]
+    96→    96→  caseOfficerRecords CaseOfficer[]
+    97→    97→  transfersAsFrom    CaseTransfer[]   @relation("transferFrom")
+    98→    98→  transfersAsTo      CaseTransfer[]   @relation("transferTo")
+    99→    99→  departmentDocuments CaseDocument[]  @relation("documentUploaderDepartment")
+   100→   100→  evidenceCustodianOf     Evidence[]          @relation("evidenceCustodian")
+   101→   101→  evidenceCollectedOf     Evidence[]          @relation("evidenceCollectingDept")
+   102→   102→  evidenceTransfersFrom   EvidenceTransfer[]  @relation("evidenceTransferFrom")
+   103→   103→  evidenceTransfersTo     EvidenceTransfer[]  @relation("evidenceTransferTo")
+   104→   104→  createdAt      DateTime    @default(now())
+   105→   105→  updatedAt      DateTime    @updatedAt
+   106→   106→
+   107→   107→  @@index([stateId])
+   108→   108→  @@index([districtId])
+   109→   109→  @@index([cityId])
+   110→   110→  @@index([departmentType])
+   111→   111→  @@index([status])
+   112→   112→}
+   113→   113→
+   114→   114→model Officer {
+   115→   115→  id                   String    @id @default(cuid())
+   116→   116→  officerId            String    @unique
+   117→   117→  departmentId         String
+   118→   118→  department           Department @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+   119→   119→  name                 String
+   120→   120→  email                String    @unique
+   121→   121→  phone                String?
+   122→   122→  designation          String
+   123→   123→  role                 String
+   124→   124→  status               String    @default("PENDING")
+   125→   125→  passwordHash         String
+   126→   126→  authenticationStatus String    @default("PASSWORD")
+   127→   127→  lastLoginAt          DateTime?
+   128→   128→  sessions             Session[]
+   129→   129→  casesAsCustodianOfficer Case[]         @relation("caseCustodianOfficer")
+   130→   130→  casesCreated            Case[]         @relation("caseCreatedBy")
+   131→   131→  caseOfficerRecords      CaseOfficer[]
+   132→   132→  transfersFromOfficer    CaseTransfer[] @relation("transferFromOfficer")
+   133→   133→  transfersToOfficer      CaseTransfer[] @relation("transferToOfficer")
+   134→   134→  transfersRequestedBy    CaseTransfer[] @relation("transferRequestedBy")
+   135→   135→  transfersAcceptedBy     CaseTransfer[] @relation("transferAcceptedBy")
+   136→   136→  documentsUploaded       CaseDocument[] @relation("documentUploader")
+   137→   137→  documentRelCreators     DocumentRelationship[]  @relation("documentRelationshipCreator")
+   138→   138→  documentUploadSessions  DocumentUploadSession[] @relation("documentUploadSessionActor")
+   139→   139→  evidenceCollected        Evidence[]                     @relation("evidenceCollector")
+   140→   140→  evidenceRegistered       Evidence[]                     @relation("evidenceRegistrar")
+   141→   141→  evidenceCustodianOf      Evidence[]                     @relation("evidenceCustodianOfficer")
+   142→   142→  evidenceTransfersRequestedBy EvidenceTransfer[]         @relation("evidenceTransferRequestedBy")
+   143→   143→  evidenceTransfersAcceptedBy  EvidenceTransfer[]         @relation("evidenceTransferAcceptedBy")
+   144→   144→  evidenceTransfersFromOfficer EvidenceTransfer[]         @relation("evidenceTransferFromOfficer")
+   145→   145→  evidenceTransfersToOfficer   EvidenceTransfer[]         @relation("evidenceTransferToOfficer")
+   146→   146→  evidenceRelCreators      EvidenceDocumentRelationship[] @relation("evidenceRelationshipCreator")
+   147→   147→  auditEventsActed         AuditEvent[]                   @relation("auditEventActor")
+   148→   148→  createdAt            DateTime  @default(now())
+   149→   149→  updatedAt            DateTime  @updatedAt
+   150→   150→
+   151→   151→  @@index([departmentId])
+   152→   152→  @@index([role])
+   153→   153→  @@index([status])
+   154→   154→}
+   155→   155→
+   156→   156→model Session {
+   157→   157→  id            String    @id
+   158→   158→  officerId     String
+   159→   159→  officer       Officer   @relation(fields: [officerId], references: [id], onDelete: Cascade)
+   160→   160→  departmentId  String
+   161→   161→  createdAt     DateTime  @default(now())
+   162→   162→  expiresAt     DateTime
+   163→   163→  lastActivity  DateTime  @default(now())
+   164→   164→  revoked       Boolean   @default(false)
+   165→   165→  revokedAt     DateTime?
+   166→   166→  userAgent     String?
+   167→   167→  ipAddress     String?
+   168→   168→
+   169→   169→  @@index([officerId])
+   170→   170→  @@index([departmentId])
+   171→   171→}
+   172→   172→
+   173→   173→model IdentityEvent {
+   174→   174→  id               String   @id @default(cuid())
+   175→   175→  eventType        String
+   176→   176→  actorOfficerId   String?
+   177→   177→  actorIdentifier  String?
+   178→   178→  departmentId     String?
+   179→   179→  targetType       String?
+   180→   180→  targetId         String?
+   181→   181→  metadata         String?
+   182→   182→  ipAddress        String?
+   183→   183→  userAgent        String?
+   184→   184→  createdAt        DateTime @default(now())
+   185→   185→
+   186→   186→  @@index([eventType])
+   187→   187→  @@index([actorOfficerId])
+   188→   188→  @@index([departmentId])
+   189→   189→  @@index([createdAt])
+   190→   190→}
+   191→   191→
+   192→   192→// ============================================================
+   193→   193→// PHASE 2 — Case Management & Custody (spec §4/§12/§13/§19/§24)
+   194→   194→// The CASE is the central entity of the platform. Status/type
+   195→   195→// fields are strings validated at the application boundary
+   196→   196→// (Zod) and defined once in src/lib/constants.ts — SQLite has
+   197→   197→// no enums; schema stays PostgreSQL-portable.
+   198→   198→// Historical records (custody, participation, timeline) are
+   199→   199→// NEVER cascade-deleted (spec §35/§36): Restrict everywhere.
+   200→   200→// ============================================================
+   201→   201→
+   202→   202→model Case {
+   203→   203→  id                            String    @id @default(cuid())
+   204→   204→  caseId                        String    @unique // public identity: CASE-MP-IND-2026-000001
+   205→   205→  caseNumber                    String?   // official reference: FIR/124/2026 (uniqueness scoped per originating dept + format)
+   206→   206→  title                         String
+   207→   207→  description                   String?
+   208→   208→  caseType                      String
+   209→   209→  caseCategory                  String?
+   210→   210→  priority                      String    @default("NORMAL")
+   211→   211→  status                        String    @default("DRAFT")
+   212→   212→
+   213→   213→  stateId                       String
+   214→   214→  state                         State     @relation(fields: [stateId], references: [id], onDelete: Restrict)
+   215→   215→  districtId                    String
+   216→   216→  district                      District  @relation(fields: [districtId], references: [id], onDelete: Restrict)
+   217→   217→  cityId                        String
+   218→   218→  city                          City      @relation(fields: [cityId], references: [id], onDelete: Restrict)
+   219→   219→
+   220→   220→  originatingDepartmentId       String
+   221→   221→  originatingDepartment         Department @relation("caseOrigin", fields: [originatingDepartmentId], references: [id], onDelete: Restrict)
+   222→   222→  currentCustodianDepartmentId  String
+   223→   223→  currentCustodianDepartment    Department @relation("caseCustodian", fields: [currentCustodianDepartmentId], references: [id], onDelete: Restrict)
+   224→   224→  currentCustodianOfficerId     String?
+   225→   225→  currentCustodianOfficer       Officer?  @relation("caseCustodianOfficer", fields: [currentCustodianOfficerId], references: [id], onDelete: SetNull)
+   226→   226→
+   227→   227→  createdByOfficerId            String
+   228→   228→  createdByOfficer              Officer   @relation("caseCreatedBy", fields: [createdByOfficerId], references: [id], onDelete: Restrict)
+   229→   229→  createdByDepartmentId         String
+   230→   230→
+   231→   231→  openedAt                      DateTime?
+   232→   232→  closedAt                      DateTime?
+   233→   233→  archivedAt                    DateTime?
+   234→   234→  version                       Int       @default(1) // optimistic concurrency for custody (spec §47)
+   235→   235→
+   236→   236→  departments                   CaseDepartment[]
+   237→   237→  officers                      CaseOfficer[]
+   238→   238→  transfers                     CaseTransfer[]
+   239→   239→  events                        CaseEvent[]
+   240→   240→  documents                     CaseDocument[]
+   241→   241→  documentUploadSessions        DocumentUploadSession[]
+   242→   242→  evidence                      Evidence[]
+   243→   243→  evidenceTransfers             EvidenceTransfer[]
+   244→   244→
+   245→   245→  createdAt                     DateTime  @default(now())
+   246→   246→  updatedAt                     DateTime  @updatedAt
+   247→   247→
+   248→   248→  @@index([caseId])
+   249→   249→  @@index([caseNumber])
+   250→   250→  @@index([status])
+   251→   251→  @@index([caseType])
+   252→   252→  @@index([priority])
+   253→   253→  @@index([originatingDepartmentId])
+   254→   254→  @@index([currentCustodianDepartmentId])
+   255→   255→  @@index([createdByDepartmentId])
+   256→   256→  @@index([stateId])
+   257→   257→  @@index([districtId])
+   258→   258→  @@index([cityId])
+   259→   259→  @@index([createdAt])
+   260→   260→}
+   261→   261→
+   262→   262→model CaseDepartment {
+   263→   263→  id                String    @id @default(cuid())
+   264→   264→  caseId            String
+   265→   265→  case              Case      @relation(fields: [caseId], references: [id], onDelete: Restrict)
+   266→   266→  departmentId      String
+   267→   267→  department        Department @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+   268→   268→
+   269→   269→  participationType String    // ORIGINATING | ACTIVE_CUSTODIAN | PARTICIPATING | CONSULTED | HISTORICAL
+   270→   270→  status            String    @default("ACTIVE") // ACTIVE | REMOVED
+   271→   271→  joinedAt          DateTime  @default(now())
+   272→   272→  leftAt            DateTime?
+   273→   273→  addedByOfficerId  String?
+   274→   274→  note              String?
+   275→   275→
+   276→   276→  createdAt         DateTime  @default(now())
+   277→   277→  updatedAt         DateTime  @updatedAt
+   278→   278→
+   279→   279→  @@unique([caseId, departmentId])
+   280→   280→  @@index([caseId])
+   281→   281→  @@index([departmentId])
+   282→   282→  @@index([participationType])
+   283→   283→  @@index([status])
+   284→   284→}
+   285→   285→
+   286→   286→model CaseOfficer {
+   287→   287→  id                 String    @id @default(cuid())
+   288→   288→  caseId             String
+   289→   289→  case               Case      @relation(fields: [caseId], references: [id], onDelete: Restrict)
+   290→   290→  officerId          String
+   291→   291→  officer            Officer   @relation(fields: [officerId], references: [id], onDelete: Restrict)
+   292→   292→  departmentId       String
+   293→   293→  department         Department @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+   294→   294→
+   295→   295→  roleOnCase         String
+   296→   296→  status             String    @default("ACTIVE") // ACTIVE | REMOVED
+   297→   297→  assignedAt         DateTime  @default(now())
+   298→   298→  unassignedAt       DateTime?
+   299→   299→  assignedByOfficerId String?
+   300→   300→  note               String?
+   301→   301→
+   302→   302→  createdAt          DateTime  @default(now())
+   303→   303→  updatedAt          DateTime  @updatedAt
+   304→   304→
+   305→   305→  @@unique([caseId, officerId])
+   306→   306→  @@index([caseId])
+   307→   307→  @@index([officerId])
+   308→   308→  @@index([departmentId])
+   309→   309→  @@index([status])
+   310→   310→}
+   311→   311→
+   312→   312→model CaseTransfer {
+   313→   313→  id                  String    @id @default(cuid())
+   314→   314→  transferId          String    @unique // TRF-MP-IND-2026-000001
+   315→   315→  caseId              String
+   316→   316→  case                Case      @relation(fields: [caseId], references: [id], onDelete: Restrict)
+   317→   317→
+   318→   318→  fromDepartmentId    String
+   319→   319→  fromDepartment      Department @relation("transferFrom", fields: [fromDepartmentId], references: [id], onDelete: Restrict)
+   320→   320→  toDepartmentId      String
+   321→   321→  toDepartment        Department @relation("transferTo", fields: [toDepartmentId], references: [id], onDelete: Restrict)
+   322→   322→  fromOfficerId       String?
+   323→   323→  fromOfficer         Officer?  @relation("transferFromOfficer", fields: [fromOfficerId], references: [id], onDelete: SetNull)
+   324→   324→  toOfficerId         String?
+   325→   325→  toOfficer           Officer?  @relation("transferToOfficer", fields: [toOfficerId], references: [id], onDelete: SetNull)
+   326→   326→  requestedByOfficerId String
+   327→   327→  requestedByOfficer  Officer   @relation("transferRequestedBy", fields: [requestedByOfficerId], references: [id], onDelete: Restrict)
+   328→   328→  acceptedByOfficerId String?
+   329→   329→  acceptedByOfficer   Officer?  @relation("transferAcceptedBy", fields: [acceptedByOfficerId], references: [id], onDelete: SetNull)
+   330→   330→
+   331→   331→  status              String    @default("REQUESTED") // REQUESTED | ACCEPTED | REJECTED | CANCELLED | EXPIRED
+   332→   332→  reason              String
+   333→   333→  transferNotes       String?
+   334→   334→
+   335→   335→  requestedAt         DateTime  @default(now())
+   336→   336→  acceptedAt          DateTime?
+   337→   337→  rejectedAt          DateTime?
+   338→   338→  cancelledAt         DateTime?
+   339→   339→
+   340→   340→  createdAt           DateTime  @default(now())
+   341→   341→  updatedAt           DateTime  @updatedAt
+   342→   342→
+   343→   343→  @@index([caseId])
+   344→   344→  @@index([status])
+   345→   345→  @@index([toDepartmentId])
+   346→   346→  @@index([fromDepartmentId])
+   347→   347→}
+   348→   348→
+   349→   349→model CaseEvent {
+   350→   350→  id              String   @id @default(cuid())
+   351→   351→  caseId          String
+   352→   352→  case            Case     @relation(fields: [caseId], references: [id], onDelete: Restrict)
+   353→   353→  eventType       String
+   354→   354→  actorOfficerId  String?
+   355→   355→  actorIdentifier String?
+   356→   356→  departmentId    String?
+   357→   357→  targetType      String?
+   358→   358→  targetId        String?
+   359→   359→  description     String?
+   360→   360→  metadata        String?
+   361→   361→  createdAt       DateTime @default(now())
+   362→   362→
+   363→   363→  @@index([caseId])
+   364→   364→  @@index([caseId, createdAt])
+   365→   365→  @@index([eventType])
+   366→   366→  @@index([departmentId])
+   367→   367→}
+   368→   368→
+   369→   369→// ============================================================
+   370→   370→// PHASE 3 — Secure Digital Document Management (spec §5/§9/§50/§51).
+   371→   371→//
+   372→   372→// IMMUTABILITY MODEL (spec §2/§35): a COMMITTED CaseDocument row is
+   373→   373→// a legal record. After commit, documentId, caseId, binary content,
+   374→   374→// sha256Hash, originalFilename, mimeType, fileSize, storageKey,
+   375→   375→// uploadedBy identity and committedAt are FROZEN — no API mutates
+   376→   376→// them, and documents are never hard-deleted. Corrections and
+   377→   377→// supplements are NEW immutable rows linked through
+   378→   378→// DocumentRelationship; replacement flips the original to
+   379→   379→// SUPERSEDED (a status, never a deletion).
+   380→   380→//
+   381→   381→// TWO-PHASE COMMIT (spec §12/§22/§23): the binary is validated,
+   382→   382→// hashed (SHA-256 over plaintext), encrypted (AES-256-GCM) and
+   383→   383→// stored BEFORE metadata persists. A Document row exists only from
+   384→   384→// commit onward; failures are tracked on DocumentUploadSession and
+   385→   385→// staged objects are cleaned up or quarantined — a failed upload
+   386→   386→// can never appear as a valid document.
+   387→   387→//
+   388→   388→// STORAGE: files live OUTSIDE /public under opaque server-generated
+   389→   389→// keys (cases/{case-uuid}/documents/{uuid}/object); the original
+   390→   390→// filename is metadata only. SQLite keeps metadata only.
+   391→   391→// ============================================================
+   392→   392→
+   393→   393→model CaseDocument {
+   394→   394→  id                     String    @id @default(cuid()) // internal id — never exposed as storage path
+   395→   395→  documentId             String    @unique // public identity: DOC-MP-IND-2026-000001 (backend-generated, immutable)
+   396→   396→  caseId                 String
+   397→   397→  case                   Case      @relation(fields: [caseId], references: [id], onDelete: Restrict)
+   398→   398→
+   399→   399→  // classification
+   400→   400→  title                  String
+   401→   401→  description            String?
+   402→   402→  documentType           String    // DOCUMENT_TYPES registry
+   403→   403→  documentCategory       String?   // DOCUMENT_CATEGORIES registry
+   404→   404→
+   405→   405→  // file facts — frozen after commit (spec §35)
+   406→   406→  originalFilename       String    // preserved as metadata only, never a storage path
+   407→   407→  storedFilename         String    // server-generated <uuid>.bin
+   408→   408→  mimeType               String    // server-detected via magic bytes
+   409→   409→  fileExtension          String
+   410→   410→  fileSize               Int
+   411→   411→  storageProvider        String    // STORAGE_PROVIDERS registry
+   412→   412→  storageKey             String    // opaque: cases/{case-uuid}/documents/{uuid}/object
+   413→   413→  sha256Hash             String    // integrity fingerprint over PLAINTEXT, computed pre-encryption
+   414→   414→  encryptionStatus       String    // ENCRYPTION_STATUSES registry
+   415→   415→  keyReference           String?   // key VERSION reference — never the key material
+   416→   416→
+   417→   417→  // lifecycle & security
+   418→   418→  status                 String    @default("COMMITTED") // DOCUMENT_STATUSES
+   419→   419→  classification         String    // DOCUMENT_CLASSIFICATIONS
+   420→   420→
+   421→   421→  // origin — frozen after commit; always derived server-side
+   422→   422→  uploadedByOfficerId    String
+   423→   423→  uploadedByOfficer      Officer   @relation("documentUploader", fields: [uploadedByOfficerId], references: [id], onDelete: Restrict)
+   424→   424→  uploadedByDepartmentId String
+   425→   425→  uploadedByDepartment   Department @relation("documentUploaderDepartment", fields: [uploadedByDepartmentId], references: [id], onDelete: Restrict)
+   426→   426→
+   427→   427→  // dates are distinct (spec §28): documentDate is the business date,
+   428→   428→  // createdAt is upload time, committedAt is commit time.
+   429→   429→  documentDate           DateTime?
+   430→   430→  metadata               String?   // validated JSON block (referenceNumber, issuingDepartmentName, externalReference, tags)
+   431→   431→
+   432→   432→  committedAt            DateTime?
+   433→   433→  supersededByDocumentId String?   // public id of the designated successor (replacement workflow)
+   434→   434→  uploadSessionId        String?   @unique
+   435→   435→
+   436→   436→  relationshipsAsSource DocumentRelationship[] @relation("docRelationshipSource")
+   437→   437→  relationshipsAsTarget DocumentRelationship[] @relation("docRelationshipTarget")
+   438→   438→  evidenceRelationships EvidenceDocumentRelationship[] @relation("evidenceRelationshipDocument")
+   439→   439→  events                DocumentEvent[]
+   440→   440→
+   441→   441→  createdAt              DateTime  @default(now()) // uploaded at
+   442→   442→  updatedAt              DateTime  @updatedAt
+   443→   443→
+   444→   444→  @@index([caseId])
+   445→   445→  @@index([caseId, status])
+   446→   446→  @@index([documentType])
+   447→   447→  @@index([classification])
+   448→   448→  @@index([status])
+   449→   449→  @@index([uploadedByOfficerId])
+   450→   450→  @@index([uploadedByDepartmentId])
+   451→   451→  @@index([createdAt])
+   452→   452→  @@index([sha256Hash]) // duplicate awareness (spec §66/§67) — hash is NOT a business identifier
+   453→   453→}
+   454→   454→
+   455→   455→model DocumentRelationship {
+   456→   456→  id                 String       @id @default(cuid())
+   457→   457→  sourceDocumentId   String       // the NEW/related document (e.g. the supplement)
+   458→   458→  sourceDocument     CaseDocument @relation("docRelationshipSource", fields: [sourceDocumentId], references: [id], onDelete: Restrict)
+   459→   459→  targetDocumentId   String       // the document it relates to (e.g. the original)
+   460→   460→  targetDocument     CaseDocument @relation("docRelationshipTarget", fields: [targetDocumentId], references: [id], onDelete: Restrict)
+   461→   461→  relationshipType   String       // DOCUMENT_RELATIONSHIP_TYPES
+   462→   462→  createdByOfficerId String
+   463→   463→  createdByOfficer   Officer      @relation("documentRelationshipCreator", fields: [createdByOfficerId], references: [id], onDelete: Restrict)
+   464→   464→  createdAt          DateTime     @default(now())
+   465→   465→
+   466→   466→  @@unique([sourceDocumentId, targetDocumentId, relationshipType])
+   467→   467→  @@index([sourceDocumentId])
+   468→   468→  @@index([targetDocumentId])
+   469→   469→  @@index([relationshipType])
+   470→   470→}
+   471→   471→
+   472→   472→// Audit event interface (spec §51/§52). Phase 4's immutable ledger
+   473→   473→// consumes these; sensitive content (passwords, keys, contents) is
+   474→   474→// never written into metadata.
+   475→   475→model DocumentEvent {
+   476→   476→  id             String        @id @default(cuid())
+   477→   477→  documentId     String?
+   478→   478→  document       CaseDocument? @relation(fields: [documentId], references: [id], onDelete: Restrict)
+   479→   479→  caseId         String
+   480→   480→  eventType      String        // DOCUMENT_EVENT_TYPES
+   481→   481→  actorOfficerId String?
+   482→   482→  departmentId   String?
+   483→   483→  sessionId      String?
+   484→   484→  result         String?       // SUCCESS | DENIED | FAILED | MATCH | MISMATCH
+   485→   485→  metadata       String?
+   486→   486→  createdAt      DateTime      @default(now())
+   487→   487→
+   488→   488→  @@index([documentId])
+   489→   489→  @@index([caseId])
+   490→   490→  @@index([eventType])
+   491→   491→  @@index([actorOfficerId])
+   492→   492→  @@index([createdAt])
+   493→   493→}
+   494→   494→
+   495→   495→// Two-phase upload state (spec §12/§22/§68/§69). The session is the
+   496→   496→// reconciliation record: staged objects referenced only by non-
+   497→   497→// COMMITTED sessions are orphan cleanup candidates.
+   498→   498→model DocumentUploadSession {
+   499→   499→  id                  String   @id @default(uuid())
+   500→   500→  caseId              String
+   501→   501→  case                Case     @relation(fields: [caseId], references: [id], onDelete: Restrict)
+   502→   502→  clientRequestId     String?  // idempotency key (spec §68)
+   503→   503→  status              String   @default("UPLOADING") // UPLOAD_SESSION_STATUSES
+   504→   504→  originalFilename    String?
+   505→   505→  declaredMimeType    String?
+   506→   506→  fileSize            Int?
+   507→   507→  storageKey          String?  // staged object (cleanup/reconciliation)
+   508→   508→  errorMessage        String?
+   509→   509→  createdDocumentId   String?  // public DOC id once committed
+   510→   510→  uploadedByOfficerId String
+   511→   511→  uploadedByOfficer   Officer  @relation("documentUploadSessionActor", fields: [uploadedByOfficerId], references: [id], onDelete: Restrict)
+   512→   512→  createdAt           DateTime @default(now())
+   513→   513→  updatedAt           DateTime @updatedAt
+   514→   514→
+   515→   515→  @@unique([uploadedByOfficerId, clientRequestId])
+   516→   516→  @@index([caseId])
+   517→   517→  @@index([status])
+   518→   518→  @@index([createdAt])
+   519→   519→}
+   520→   520→
+   521→   521→// ============================================================
+   522→   522→// PHASE 4 — Evidence & chain of custody (spec §3/§5/§15/§16).
+   523→   523→//
+   524→   524→// EVIDENCE ≠ DOCUMENT (spec §3/§46): a document describes
+   525→   525→// something; evidence IS the item being handled (device, sample,
+   526→   526→// recording, artifact). Both hang off the CASE.
+   527→   527→//
+   528→   528→// IMMUTABILITY MODEL: after commit, sha256Hash, hashAlgorithm,
+   529→   529→// storageKey, storageProvider and the custody HISTORY are frozen —
+   530→   530→// no API mutates them and evidence is never hard-deleted.
+   531→   531→// Custody changes flow ONLY through EvidenceCustodyService
+   532→   532→// (transfer request → accept → custody swap + events in ONE
+   533→   533→// transaction); controllers never touch currentCustodian* fields
+   534→   534→// (spec §17). Evidence custody is INDEPENDENT of case custody
+   535→   535→// (spec §45) — transferring a case never moves its evidence.
+   536→   536→//
+   537→   537→// PHYSICAL vs DIGITAL (spec §11): physical evidence has no binary
+   538→   538→// (hasDigitalContent=false, storage fields null). Digital evidence
+   539→   539→// follows the Phase 3 two-phase pipeline: validate → scan →
+   540→   540→// SHA-256 (plaintext) → AES-256-GCM encrypt → store via the SAME
+   541→   541→// DocumentStorage abstraction (spec §12) → commit row + custody +
+   542→   542→// audit atomically.
+   543→   543→// ============================================================
+   544→   544→
+   545→   545→model Evidence {
+   546→   546→  id                          String    @id @default(cuid())
+   547→   547→  evidenceId                  String    @unique // public identity: EVD-MP-IND-2026-000001 (backend-generated, immutable)
+   548→   548→  caseId                      String
+   549→   549→  case                        Case      @relation(fields: [caseId], references: [id], onDelete: Restrict)
+   550→   550→
+   551→   551→  // descriptive metadata
+   552→   552→  evidenceNumber              String?   // external reference (seizure memo no., exhibit tag) — never the system identity
+   553→   553→  title                       String
+   554→   554→  description                 String?
+   555→   555→  evidenceType                String    // EVIDENCE_TYPES registry (spec §6)
+   556→   556→  category                    String?   // free-text subcategory (extensible, spec §6)
+   557→   557→  status                      String    @default("REGISTERED") // EVIDENCE_STATUSES (spec §8), transitions controlled
+   558→   558→  classification              String    // EVIDENCE_CLASSIFICATIONS (spec §9) — drives authorization
+   559→   559→
+   560→   560→  // acquisition (spec §10)
+   561→   561→  sourceType                  String    // EVIDENCE_SOURCE_TYPES registry (spec §7)
+   562→   562→  sourceReference             String?
+   563→   563→  collectionLocation          String?
+   564→   564→  collectedAt                 DateTime?
+   565→   565→  receivedAt                  DateTime?
+   566→   566→  condition                   String?
+   567→   567→  notes                       String?
+   568→   568→  deviceMetadata              String?   // optional JSON (manufacturer/model/serial/gps) — NOT claimed available for every type
+   569→   569→
+   570→   570→  collectedByOfficerId        String?
+   571→   571→  collectedByOfficer          Officer?  @relation("evidenceCollector", fields: [collectedByOfficerId], references: [id], onDelete: SetNull)
+   572→   572→  collectingDepartmentId      String
+   573→   573→  collectingDepartment        Department @relation("evidenceCollectingDept", fields: [collectingDepartmentId], references: [id], onDelete: Restrict)
+   574→   574→
+   575→   575→  // custody — maintained ONLY by EvidenceCustodyService (spec §17)
+   576→   576→  currentCustodianDepartmentId String?
+   577→   577→  currentCustodianDepartment  Department? @relation("evidenceCustodian", fields: [currentCustodianDepartmentId], references: [id], onDelete: SetNull)
+   578→   578→  currentCustodianOfficerId   String?
+   579→   579→  currentCustodianOfficer     Officer?  @relation("evidenceCustodianOfficer", fields: [currentCustodianOfficerId], references: [id], onDelete: SetNull)
+   580→   580→
+   581→   581→  // digital content (spec §11/§13/§14) — frozen after commit
+   582→   582→  hasDigitalContent           Boolean   @default(false)
+   583→   583→  originalFilename            String?   // metadata only, never a storage path
+   584→   584→  mimeType                    String?   // server-detected via magic bytes
+   585→   585→  fileSize                    Int?
+   586→   586→  storageProvider             String?   // STORAGE_PROVIDERS registry
+   587→   587→  storageKey                  String?   // opaque: evidence/{case-uuid}/{uuid}/object — NEVER exposed to clients (spec §5)
+   588→   588→  sha256Hash                  String?   // integrity fingerprint over PLAINTEXT, pre-encryption
+   589→   589→  hashAlgorithm               String    @default("SHA-256") // stored explicitly (spec §14) — architecture allows evolution
+   590→   590→  encryptionStatus            String?
+   591→   591→  keyReference                String?   // non-secret key version label
+   592→   592→
+   593→   593→  // origin — derived server-side, frozen after commit
+   594→   594→  registeredByOfficerId       String
+   595→   595→  registeredByOfficer         Officer   @relation("evidenceRegistrar", fields: [registeredByOfficerId], references: [id], onDelete: Restrict)
+   596→   596→  registeredByDepartmentId    String
+   597→   597→
+   598→   598→  version                     Int       @default(1) // optimistic concurrency for custody swaps
+   599→   599→  committedAt                 DateTime?
+   600→   600→  createdAt                   DateTime  @default(now())
+   601→   601→  updatedAt                   DateTime  @updatedAt
+   602→   602→
+   603→   603→  transfers                   EvidenceTransfer[]
+   604→   604→  documentRelationships       EvidenceDocumentRelationship[]
+   605→   605→
+   606→   606→  @@index([caseId])
+   607→   607→  @@index([caseId, status])
+   608→   608→  @@index([evidenceType])
+   609→   609→  @@index([status])
+   610→   610→  @@index([classification])
+   611→   611→  @@index([currentCustodianDepartmentId])
+   612→   612→  @@index([collectingDepartmentId])
+   613→   613→  @@index([registeredByOfficerId])
+   614→   614→  @@index([registeredByDepartmentId])
+   615→   615→  @@index([sha256Hash]) // duplicate awareness — NOT a business identifier
+   616→   616→  @@index([createdAt])
+   617→   617→}
+   618→   618→
+   619→   619→// Custody transfer record (spec §16). REQUESTED → ACCEPTED is the
+   620→   620→// only path that changes current custody; REJECTED/CANCELLED leave
+   621→   621→// it untouched (spec §17/§44). Decided transfers are HISTORICAL —
+   622→   622→// they can never be edited or deleted (SQLite guards + no API).
+   623→   623→model EvidenceTransfer {
+   624→   624→  id                    String    @id @default(cuid())
+   625→   625→  transferId            String    @unique // public identity: ETR-MP-IND-2026-000001
+   626→   626→  evidenceId            String    // internal Evidence.id
+   627→   627→  evidence              Evidence  @relation(fields: [evidenceId], references: [id], onDelete: Restrict)
+   628→   628→  caseId                String
+   629→   629→  case                  Case      @relation(fields: [caseId], references: [id], onDelete: Restrict)
+   630→   630→
+   631→   631→  fromDepartmentId      String
+   632→   632→  fromDepartment        Department @relation("evidenceTransferFrom", fields: [fromDepartmentId], references: [id], onDelete: Restrict)
+   633→   633→  toDepartmentId        String
+   634→   634→  toDepartment          Department @relation("evidenceTransferTo", fields: [toDepartmentId], references: [id], onDelete: Restrict)
+   635→   635→  fromOfficerId         String?   // releasing officer
+   636→   636→  fromOfficer           Officer?  @relation("evidenceTransferFromOfficer", fields: [fromOfficerId], references: [id], onDelete: SetNull)
+   637→   637→  toOfficerId           String?   // receiving officer
+   638→   638→  toOfficer             Officer?  @relation("evidenceTransferToOfficer", fields: [toOfficerId], references: [id], onDelete: SetNull)
+   639→   639→  requestedByOfficerId  String
+   640→   640→  requestedByOfficer    Officer   @relation("evidenceTransferRequestedBy", fields: [requestedByOfficerId], references: [id], onDelete: Restrict)
+   641→   641→  acceptedByOfficerId   String?
+   642→   642→  acceptedByOfficer     Officer?  @relation("evidenceTransferAcceptedBy", fields: [acceptedByOfficerId], references: [id], onDelete: SetNull)
+   643→   643→
+   644→   644→  status                String    @default("REQUESTED") // REQUESTED | ACCEPTED | REJECTED | CANCELLED
+   645→   645→  reason                String
+   646→   646→  notes                 String?
+   647→   647→  previousItemStatus    String?   // evidence status before TRANSFER_PENDING — restored on reject/cancel
+   648→   648→
+   649→   649→  requestedAt           DateTime  @default(now())
+   650→   650→  acceptedAt            DateTime?
+   651→   651→  rejectedAt            DateTime?
+   652→   652→  cancelledAt           DateTime?
+   653→   653→  createdAt             DateTime  @default(now())
+   654→   654→  updatedAt             DateTime  @updatedAt
+   655→   655→
+   656→   656→  @@index([evidenceId])
+   657→   657→  @@index([evidenceId, status])
+   658→   658→  @@index([caseId])
+   659→   659→  @@index([status])
+   660→   660→  @@index([fromDepartmentId])
+   661→   661→  @@index([toDepartmentId])
+   662→   662→  @@index([requestedAt])
+   663→   663→}
+   664→   664→
+   665→   665→// Evidence ↔ Document relationships (spec §20). Direction is
+   666→   666→// DOCUMENT → EVIDENCE: a forensic report DESCRIBES / RESULTS_FROM /
+   667→   667→// DERIVED_FROM the evidence; SUPPORTS and RELATED are symmetric.
+   668→   668→// This is deliberately NOT a knowledge graph (spec §20/§68).
+   669→   669→model EvidenceDocumentRelationship {
+   670→   670→  id                 String       @id @default(cuid())
+   671→   671→  evidenceId         String       // internal Evidence.id
+   672→   672→  evidence           Evidence     @relation(fields: [evidenceId], references: [id], onDelete: Restrict)
+   673→   673→  documentId         String       // internal CaseDocument.id
+   674→   674→  document           CaseDocument @relation("evidenceRelationshipDocument", fields: [documentId], references: [id], onDelete: Restrict)
+   675→   675→  relationshipType   String       // EVIDENCE_RELATIONSHIP_TYPES (spec §20)
+   676→   676→  note               String?
+   677→   677→  createdByOfficerId String
+   678→   678→  createdByOfficer   Officer      @relation("evidenceRelationshipCreator", fields: [createdByOfficerId], references: [id], onDelete: Restrict)
+   679→   679→  createdAt          DateTime     @default(now())
+   680→   680→
+   681→   681→  @@unique([evidenceId, documentId, relationshipType])
+   682→   682→  @@index([evidenceId])
+   683→   683→  @@index([documentId])
+   684→   684→  @@index([relationshipType])
+   685→   685→}
+   686→   686→
+   687→   687→// ============================================================
+   688→   688→// PHASE 4 — Immutable audit architecture (spec §22-§31/§48-§55).
+   689→   689→//
+   690→   690→// APPEND-ONLY: no API ever updates or deletes an AuditEvent; the
+   691→   691→// SQLite layer additionally enforces this with RAISE(ABORT)
+   692→   692→// triggers (spec §58 — applied by scripts/apply-sqlite-guards.ts).
+   693→   693→// Corrections are NEW events, never edits (spec §24).
+   694→   694→//
+   695→   695→// HASH CHAIN (spec §25/§26): event_hash = SHA-256(canonical payload
+   696→   696→// + previous_event_hash); canonical serialization is ONE shared
+   697→   697→// implementation (CanonicalAuditSerializer, spec §55) — field
+   698→   698→// order fixed, metadata keys sorted, timestamps ISO-UTC. The chain
+   699→   699→// starts at the documented AUDIT_GENESIS hash (spec §27).
+   700→   700→//
+   701→   701→// caseId/documentId/evidenceId store PUBLIC identifiers WITHOUT
+   702→   702→// foreign keys by design: audit records are self-contained, they
+   703→   703→// outlive resource lifecycles, and the ledger must never be
+   704→   704→// blocked by (or cascade from) resource management. Actor fields
+   705→   705→// ARE foreign keys with Restrict — audit presence prevents
+   706→   706→// destroying actor identity.
+   707→   707→//
+   708→   708→// HONEST BOUNDARY (spec §29): a database hash chain is
+   709→   709→// tamper-EVIDENT against application-level and casual DB tampering;
+   710→   710→// it does NOT stop a privileged infrastructure administrator who
+   711→   711→// can rewrite the whole table and every hash. External anchoring
+   712→   712→// via LedgerAnchor (spec §30/§31) is the production extension.
+   713→   713→// ============================================================
+   714→   714→
+   715→   715→model AuditEvent {
+   716→   716→  id                String    @id @default(cuid())
+   717→   717→  sequence          Int       @unique // chain position, monotonic, gap-free (spec §53/§54)
+   718→   718→  eventId           String    @unique // public identity: EVT-2026-000001
+   719→   719→  eventType         String    // AUDIT_EVENT_TYPES registry (spec §21/§22)
+   720→   720→
+   721→   721→  actorOfficerId    String?
+   722→   722→  actorOfficer      Officer?  @relation("auditEventActor", fields: [actorOfficerId], references: [id], onDelete: Restrict)
+   723→   723→  actorIdentifier   String?   // attempted identity for events with no resolved actor (failed logins)
+   724→   724→  actorDepartmentId String?
+   725→   725→
+   726→   726→  caseId            String?   // PUBLIC id (CASE-…), no FK — self-contained ledger
+   727→   727→  documentId        String?   // PUBLIC id (DOC-…)
+   728→   728→  evidenceId        String?   // PUBLIC id (EVD-…)
+   729→   729→
+   730→   730→  sessionId         String?
+   731→   731→  timestamp         DateTime  @default(now()) // event occurrence time (service-stamped)
+   732→   732→  result            String    @default("SUCCESS") // SUCCESS | DENIED | FAILED
+   733→   733→  ipAddress         String?
+   734→   734→  deviceId          String?
+   735→   735→  userAgent         String?
+   736→   736→  metadata          String?   // sanitized JSON — never secrets/contents (spec §23/§50)
+   737→   737→
+   738→   738→  previousEventHash String    // GENESIS hash for sequence 1 (spec §27)
+   739→   739→  eventHash         String    // SHA-256(canonical payload incl. previous hash)
+   740→   740→  ledgerStatus      String    @default("UNANCHORED") // UNANCHORED | ANCHORED (spec §23/§31)
+   741→   741→
+   742→   742→  createdAt         DateTime  @default(now())
+   743→   743→
+   744→   744→  @@index([sequence])
+   745→   745→  @@index([eventType])
+   746→   746→  @@index([actorOfficerId])
+   747→   747→  @@index([actorDepartmentId])
+   748→   748→  @@index([caseId])
+   749→   749→  @@index([documentId])
+   750→   750→  @@index([evidenceId])
+   751→   751→  @@index([timestamp])
+   752→   752→  @@index([result])
+   753→   753→  @@index([sessionId])
+   754→   754→}
+   755→   755→
+   756→   756→// Persisted chain state (spec §53) — the ONLY mutable row in the
+   757→   757→// audit architecture; kept in the same transaction as every append
+   758→   758→// so concurrent writers serialize correctly. Verification results
+   759→   759→// are cached here for the integrity dashboard (spec §61).
+   760→   760→model AuditChainState {
+   761→   761→  id                   String    @id @default("SINGLETON")
+   762→   762→  lastSequence         Int       @default(0)
+   763→   763→  lastEventHash        String    @default("") // equals AUDIT_GENESIS_HASH before the first event
+   764→   764→  lastEventId          String?
+   765→   765→  eventCount           Int       @default(0)
+   766→   766→  lastVerifiedAt       DateTime?
+   767→   767→  lastVerifiedResult   String?   // VALID | INVALID
+   768→   768→  lastVerifiedSequence Int?
+   769→   769→  lastInvalidSequence  Int?
+   770→   770→  updatedAt            DateTime  @updatedAt
+   771→   771→}
+   772→   772→
+   773→   773→// Ledger anchor (spec §30/§31/§67): a periodic commitment of the
+   774→   774→// chain head produced by a LedgerAdapter. MVP adapter = DATABASE
+   775→   775→// (self-verifying); Hyperledger Fabric adapter is an interface
+   776→   776→// stub for a future phase — never claimed as live (spec §31/§68).
+   777→   777→model LedgerAnchor {
+   778→   778→  id                  String   @id @default(cuid())
+   779→   779→  anchorId            String   @unique // public identity: ANCHOR-2026-000001
+   780→   780→  provider            String   // LedgerAdapters registry: DATABASE (live) | HYPERLEDGER_FABRIC (stub only)
+   781→   781→  chainHash           String   // chain head hash at anchor time
+   782→   782→  upToSequence        Int
+   783→   783→  eventCount          Int
+   784→   784→  anchoredByOfficerId String?
+   785→   785→  externalReference   String?  // provider transaction/reference (future external ledgers)
+   786→   786→  anchoredAt          DateTime @default(now())
+   787→   787→
+   788→   788→  @@index([provider])
+   789→   789→  @@index([anchoredAt])
+   790→   790→}
+   791→   791→
