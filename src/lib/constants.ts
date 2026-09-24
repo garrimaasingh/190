@@ -190,14 +190,23 @@ export const CASE_EVENT_TYPES = [
   "CASE_TRANSFER_REJECTED",
   "CASE_TRANSFER_CANCELLED",
   "CASE_ACCESS_DENIED",
-  // Phase 3 — documents & evidence (registry extended per forward-
-  // compatibility design; no schema redesign required):
-  "DOCUMENT_UPLOADED",
+  // Phase 3 — documents (spec §51 registry; Phase 4 audit ledger can
+  // subscribe to these without schema redesign):
+  "DOCUMENT_UPLOAD_STARTED",
+  "DOCUMENT_VALIDATION_STARTED",
+  "DOCUMENT_VALIDATION_FAILED",
+  "DOCUMENT_COMMITTED",
   "DOCUMENT_VIEWED",
-  "DOCUMENT_DOWNLOADED",
-  "DOCUMENT_UPDATED",
-  "DOCUMENT_REMOVED",
-  "DOCUMENT_VERSION_ADDED",
+  "DOCUMENT_DOWNLOAD_REQUESTED",
+  "DOCUMENT_DOWNLOAD_COMPLETED",
+  "DOCUMENT_DOWNLOAD_FAILED",
+  "DOCUMENT_SUPPLEMENT_CREATED",
+  "DOCUMENT_CORRECTION_CREATED",
+  "DOCUMENT_REPLACEMENT_CREATED",
+  "DOCUMENT_SUPERSEDED",
+  "DOCUMENT_RELATIONSHIP_CREATED",
+  "DOCUMENT_INTEGRITY_VERIFIED",
+  "DOCUMENT_ACCESS_DENIED",
   "EVIDENCE_REGISTERED",
   "EVIDENCE_SUBMITTED",
   "EVIDENCE_CUSTODY_CHANGED",
@@ -215,43 +224,205 @@ export const CASE_DESCRIPTION_MAX_LENGTH = 4000;
 // UI must read them from here / GET /api/v1/meta, never inline.
 // ============================================================
 
+// ============================================================
+// PHASE 3 — Secure Digital Document Management (spec §5-§9, §51).
+//
+// IMMUTABILITY PRINCIPLE (spec §2): a COMMITTED document is never
+// edited, overwritten or deleted. Corrections/supplements are NEW
+// immutable records linked by DocumentRelationship. Status/type
+// fields are strings validated at the application boundary (Zod)
+// — SQLite has no enums; the schema stays PostgreSQL-portable.
+// ============================================================
+
+// Document type registry (spec §6). Extensible — add new entries
+// here only; business logic and UI must never hard-code them.
 export const DOCUMENT_TYPES = [
   "FIR",
-  "COMPLAINT",
-  "CHARGESHEET",
-  "PANCHNAMA",
-  "SEIZURE_MEMO",
+  "CASE_DIARY",
   "WITNESS_STATEMENT",
+  "INVESTIGATION_REPORT",
   "FORENSIC_REPORT",
-  "MEDICAL_REPORT",
+  "CHARGE_SHEET",
+  "PROSECUTION_DOCUMENT",
+  "COURT_DOCUMENT",
   "COURT_ORDER",
-  "PHOTOGRAPH",
-  "VIDEO",
-  "AUDIO",
+  "JUDGMENT",
+  "LEGAL_NOTICE",
   "CORRESPONDENCE",
+  "IDENTITY_DOCUMENT",
+  "EVIDENCE_REPORT",
   "OTHER",
 ] as const;
 export type DocumentType = (typeof DOCUMENT_TYPES)[number];
 
-export const DOCUMENT_STATUSES = ["ACTIVE", "SUPERSEDED", "REMOVED"] as const;
+// Coarse document category (spec §5 document_category) — separate
+// from the fine-grained type above.
+export const DOCUMENT_CATEGORIES = [
+  "CASE_RECORD",
+  "INVESTIGATION",
+  "FORENSIC",
+  "JUDICIAL",
+  "PROSECUTION",
+  "ADMINISTRATIVE",
+  "CORRESPONDENCE",
+  "IDENTIFICATION",
+  "OTHER",
+] as const;
+export type DocumentCategory = (typeof DOCUMENT_CATEGORIES)[number];
+
+// Security classification (spec §7) — independent of document type.
+// Classification LEVEL is the ordering used by document-level
+// authorization; the ceiling maps define which classification a
+// role may ASSIGN at upload (spec §7: ordinary users must not
+// arbitrarily assign highly restricted classifications).
+export const DOCUMENT_CLASSIFICATIONS = [
+  "PUBLIC",
+  "INTERNAL",
+  "CONFIDENTIAL",
+  "RESTRICTED",
+  "HIGHLY_RESTRICTED",
+] as const;
+export type DocumentClassification = (typeof DOCUMENT_CLASSIFICATIONS)[number];
+
+export const DOCUMENT_CLASSIFICATION_LEVEL: Record<string, number> = {
+  PUBLIC: 0,
+  INTERNAL: 1,
+  CONFIDENTIAL: 2,
+  RESTRICTED: 3,
+  HIGHLY_RESTRICTED: 4,
+};
+
+// UI explanations (spec §54) — concrete controls, no security theatre.
+export const DOCUMENT_CLASSIFICATION_NOTES: Record<string, string> = {
+  PUBLIC: "Not sensitive. Visible to platform users with access to the case.",
+  INTERNAL: "For internal working documents. Visible to authorized case participants.",
+  CONFIDENTIAL: "Sensitive case material. Requires explicit case assignment or custodian authority.",
+  RESTRICTED: "Access is limited to authorized case participants with custodian authority.",
+  HIGHLY_RESTRICTED: "Highest sensitivity. Requires custodian administrative authority to assign and view.",
+};
+
+// Highest classification a role may ASSIGN at upload (spec §7).
+// AUDITOR cannot upload at all (permission layer already denies).
+export const DOCUMENT_CLASSIFICATION_CEILING: Record<string, number> = {
+  SYSTEM_ADMIN: 4,
+  DEPARTMENT_ADMIN: 4, // custodian-side department admins only (case manage is also required)
+  OFFICER: 3, // RESTRICTED — ordinary officers cannot mint HIGHLY_RESTRICTED
+  AUDITOR: -1,
+};
+
+// Document status lifecycle (spec §8). A COMMITTED document is
+// immutable; SUPERSEDED documents remain stored and visible per
+// authorization policy; QUARANTINED records were never valid.
+export const DOCUMENT_STATUSES = [
+  "UPLOADING",
+  "VALIDATING",
+  "COMMITTED",
+  "QUARANTINED",
+  "SUPERSEDED",
+  "ARCHIVED",
+] as const;
 export type DocumentStatus = (typeof DOCUMENT_STATUSES)[number];
 
-// Upload controls: strict whitelist — content is decided by magic
-// bytes / decode, never by the client-declared MIME. Office/zip
-// formats are intentionally excluded (polyglot risk, weak magic).
-export const DOCUMENT_MAX_BYTES = 25 * 1024 * 1024; // 25 MB
-export const DOCUMENT_ALLOWED_MIME = [
-  "application/pdf",
-  "image/png",
-  "image/jpeg",
-  "image/webp",
-  "text/plain",
-  "text/csv",
+export const DOCUMENT_STATUS_TRANSITIONS: Record<string, string[]> = {
+  UPLOADING: ["VALIDATING"],
+  VALIDATING: ["COMMITTED", "QUARANTINED"],
+  COMMITTED: ["SUPERSEDED", "ARCHIVED"],
+  QUARANTINED: [],
+  SUPERSEDED: [],
+  ARCHIVED: [],
+};
+
+// Document relationship types (spec §9). SUPPLEMENT/CORRECTION/
+// REPLACEMENT are created only through their dedicated workflows;
+// RELATED/REFERENCE may be linked between existing documents.
+export const DOCUMENT_RELATIONSHIP_TYPES = [
+  "SUPPLEMENT",
+  "CORRECTION",
+  "REPLACEMENT",
+  "RELATED",
+  "REFERENCE",
 ] as const;
+export type DocumentRelationshipType = (typeof DOCUMENT_RELATIONSHIP_TYPES)[number];
+
+// Document event registry (spec §51/§52) — the audit interface
+// Phase 4's immutable ledger will consume.
+export const DOCUMENT_EVENT_TYPES = [
+  "DOCUMENT_UPLOAD_STARTED",
+  "DOCUMENT_VALIDATION_STARTED",
+  "DOCUMENT_VALIDATION_FAILED",
+  "DOCUMENT_COMMITTED",
+  "DOCUMENT_VIEWED",
+  "DOCUMENT_DOWNLOAD_REQUESTED",
+  "DOCUMENT_DOWNLOAD_COMPLETED",
+  "DOCUMENT_DOWNLOAD_FAILED",
+  "DOCUMENT_SUPPLEMENT_CREATED",
+  "DOCUMENT_CORRECTION_CREATED",
+  "DOCUMENT_REPLACEMENT_CREATED",
+  "DOCUMENT_SUPERSEDED",
+  "DOCUMENT_RELATIONSHIP_CREATED",
+  "DOCUMENT_INTEGRITY_VERIFIED",
+  "DOCUMENT_ACCESS_DENIED",
+] as const;
+export type DocumentEventType = (typeof DOCUMENT_EVENT_TYPES)[number];
+
+// Upload session states (spec §12/§69) — the two-phase commit
+// state model. A document row is created ONLY at commit time, so
+// a failed upload can never appear as a valid legal document.
+export const UPLOAD_SESSION_STATUSES = [
+  "UPLOADING",
+  "VALIDATING",
+  "STORING",
+  "COMMITTING",
+  "COMMITTED",
+  "FAILED",
+  "QUARANTINED",
+  "DISCARDED",
+] as const;
+
+export const ENCRYPTION_STATUSES = ["ENCRYPTED_AES_256_GCM"] as const;
+export const STORAGE_PROVIDERS = ["LOCAL_ENCRYPTED_FS"] as const;
+
+// Upload controls (spec §13/§14): strict whitelist — content type is
+// decided by magic-byte detection, never by the client declaration.
+// Office/zip formats are intentionally excluded (polyglot risk, weak
+// magic); the viewer supports PDF/image/text preview only (spec §47),
+// so universal-format claims are never made.
+export const DOCUMENT_ALLOWED_EXTENSIONS: Record<string, string> = {
+  pdf: "application/pdf",
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  tif: "image/tiff",
+  tiff: "image/tiff",
+  txt: "text/plain",
+  csv: "text/csv",
+};
+export const DOCUMENT_ALLOWED_MIME = Array.from(new Set(Object.values(DOCUMENT_ALLOWED_EXTENSIONS)));
+
+export const DOCUMENT_MAX_SIZE_MB = Number(process.env.DOCUMENT_MAX_SIZE_MB || 25);
+export const DOCUMENT_MAX_BYTES = DOCUMENT_MAX_SIZE_MB * 1024 * 1024;
 
 export const DOCUMENT_TITLE_MAX_LENGTH = 200;
 export const DOCUMENT_DESCRIPTION_MAX_LENGTH = 2000;
-export const DOCUMENT_REMOVAL_REASON_MAX_LENGTH = 500;
+export const DOCUMENT_REFERENCE_MAX_LENGTH = 100;
+export const DOCUMENT_TAG_MAX_LENGTH = 24;
+export const DOCUMENT_TAGS_MAX_COUNT = 10;
+
+// Case statuses that allow new document additions (spec §56/§57):
+// archived/closed/cancelled cases reject uploads; viewing remains.
+export const DOCUMENT_ADDITION_ALLOWED_CASE_STATUSES: string[] = [
+  "DRAFT",
+  "OPEN",
+  "UNDER_INVESTIGATION",
+  "PENDING_FORENSICS",
+  "PENDING_PROSECUTION",
+  "PENDING_COURT",
+];
+
+// Encryption key material is NEVER stored alongside documents —
+// it comes from the environment (dev) / KMS (production, future).
+export const DOCUMENT_KEY_REFERENCE =
+  process.env.DOCUMENT_KEY_REFERENCE || "DEV-ENV-KEY-1"; // labeled dev-safe key provider
 
 // ============================================================
 // PHASE 3 — Evidence & chain of custody.
@@ -344,6 +515,14 @@ export const ERROR_CODES = {
   OFFICER_INELIGIBLE: "OFFICER_INELIGIBLE",
   // Phase 3
   DOCUMENT_NOT_FOUND: "DOCUMENT_NOT_FOUND",
+  DOCUMENT_ACCESS_DENIED: "DOCUMENT_ACCESS_DENIED",
+  DOCUMENT_IMMUTABLE: "DOCUMENT_IMMUTABLE",
+  INVALID_DOCUMENT_STATE: "INVALID_DOCUMENT_STATE",
+  INVALID_RELATIONSHIP: "INVALID_RELATIONSHIP",
+  FILE_TOO_LARGE: "FILE_TOO_LARGE",
+  UNSUPPORTED_FILE_TYPE: "UNSUPPORTED_FILE_TYPE",
+  FILE_SCAN_FAILED: "FILE_SCAN_FAILED",
+  UPLOAD_DUPLICATE_IN_PROGRESS: "UPLOAD_DUPLICATE_IN_PROGRESS",
   INVALID_FILE: "INVALID_FILE",
   EVIDENCE_NOT_FOUND: "EVIDENCE_NOT_FOUND",
   INVALID_EVIDENCE_TRANSITION: "INVALID_EVIDENCE_TRANSITION",

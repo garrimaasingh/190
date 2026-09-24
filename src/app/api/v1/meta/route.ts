@@ -16,6 +16,16 @@ import {
   CASE_OFFICER_STATUSES,
   TRANSFER_STATUSES,
   CASE_EVENT_TYPES,
+  DOCUMENT_TYPES,
+  DOCUMENT_CATEGORIES,
+  DOCUMENT_CLASSIFICATIONS,
+  DOCUMENT_CLASSIFICATION_NOTES,
+  DOCUMENT_CLASSIFICATION_CEILING,
+  DOCUMENT_STATUSES,
+  DOCUMENT_RELATIONSHIP_TYPES,
+  DOCUMENT_EVENT_TYPES,
+  DOCUMENT_ALLOWED_EXTENSIONS,
+  DOCUMENT_MAX_SIZE_MB,
 } from "@/lib/constants";
 import { ROLE_PERMISSIONS } from "@/lib/permissions";
 
@@ -43,6 +53,19 @@ export async function GET(req: Request) {
       caseOfficerStatuses: CASE_OFFICER_STATUSES,
       transferStatuses: TRANSFER_STATUSES,
       caseEventTypes: CASE_EVENT_TYPES,
+      // Phase 3 — document reference data (spec §6/§7/§8/§9/§13/§54)
+      documentTypes: DOCUMENT_TYPES,
+      documentCategories: DOCUMENT_CATEGORIES,
+      documentClassifications: DOCUMENT_CLASSIFICATIONS,
+      documentClassificationNotes: DOCUMENT_CLASSIFICATION_NOTES,
+      documentClassificationCeiling: DOCUMENT_CLASSIFICATION_CEILING,
+      documentStatuses: DOCUMENT_STATUSES,
+      documentRelationshipTypes: DOCUMENT_RELATIONSHIP_TYPES,
+      documentEventTypes: DOCUMENT_EVENT_TYPES,
+      documents: {
+        maxSizeMb: DOCUMENT_MAX_SIZE_MB,
+        allowedExtensions: Object.keys(DOCUMENT_ALLOWED_EXTENSIONS),
+      },
     });
   } catch (err) {
     return handleApiError(err);

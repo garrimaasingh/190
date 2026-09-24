@@ -89,6 +89,42 @@ export const api = {
   del: <T>(path: string) => request<T>(path, { method: "DELETE" }),
 };
 
+// ---------- Phase 3: secure document streaming helpers ----------
+// Content is fetched through the authorized API (cookie-authenticated)
+// and materialized client-side; raw storage URLs never exist (spec §31).
+
+/** Fetches a document as a Blob for inline preview (PDF/image/text). */
+export async function fetchDocumentBlob(path: string): Promise<Blob> {
+  const res = await fetch(path, { credentials: "same-origin" });
+  if (!res.ok) {
+    let message = `Request failed (${res.status}).`;
+    try {
+      const body = await res.json();
+      message = body?.error?.message || message;
+    } catch {
+      // non-JSON
+    }
+    throw new ApiClientError(res.status, "STREAM_FAILED", message);
+  }
+  return res.blob();
+}
+
+/** Authoritative download: streams through the API and triggers a save dialog. */
+export async function downloadDocument(path: string, filename: string): Promise<void> {
+  const blob = await fetchDocumentBlob(path);
+  const url = URL.createObjectURL(blob);
+  try {
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  } finally {
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  }
+}
+
 // ---------- shared types ----------
 export interface Me {
   officer: {
@@ -134,6 +170,16 @@ export interface Meta {
   caseOfficerStatuses: string[];
   transferStatuses: string[];
   caseEventTypes: string[];
+  // Phase 3
+  documentTypes: string[];
+  documentCategories: string[];
+  documentClassifications: string[];
+  documentClassificationNotes: Record<string, string>;
+  documentClassificationCeiling: Record<string, number>;
+  documentStatuses: string[];
+  documentRelationshipTypes: string[];
+  documentEventTypes: string[];
+  documents: { maxSizeMb: number; allowedExtensions: string[] };
 }
 
 export interface DepartmentListItem {
@@ -347,4 +393,115 @@ export interface IncomingTransferRow {
   case: { caseId: string; title: string; status: string; priority: string; caseType: string };
   fromDepartment: { id: string; name: string; departmentType: string };
   requestedByOfficer: { officerId: string; name: string };
+}
+
+// ============================================================
+// PHASE 3 — document types
+// ============================================================
+
+export interface DocumentMetadata {
+  referenceNumber?: string;
+  issuingDepartmentName?: string;
+  externalReference?: string;
+  tags?: string[];
+}
+
+export interface DocumentRow {
+  id: string; // public document id (DOC-…)
+  caseId: string;
+  title: string;
+  description: string | null;
+  documentType: string;
+  documentCategory: string | null;
+  classification: string;
+  status: string;
+  originalFilename: string;
+  mimeType: string;
+  fileExtension: string;
+  fileSize: number;
+  sha256Hash: string;
+  encryptionStatus: string;
+  documentDate: string | null;
+  uploadedAt: string;
+  committedAt: string | null;
+  supersededByDocumentId: string | null;
+  uploadedBy: { officerId: string; name: string } | null;
+  department: { id: string; name: string; departmentType: string } | null;
+  metadata: DocumentMetadata | null;
+}
+
+export interface DocumentListResponse {
+  items: DocumentRow[];
+  total: number;
+  page: number;
+  pageSize: number;
+  caseId: string;
+  canUpload: boolean;
+}
+
+export interface DocumentUploadResponse {
+  quarantined: boolean;
+  replayed?: boolean;
+  duplicateWarning: string | null;
+  document: DocumentRow;
+  message?: string;
+}
+
+export interface RelatedDocumentResponse {
+  quarantined: boolean;
+  duplicateWarning: string | null;
+  supersededTarget: boolean;
+  relationshipType: string;
+  document: DocumentRow;
+}
+
+export interface DocumentRelationshipEntry {
+  id: string;
+  relationshipType: string;
+  direction: "incoming" | "outgoing";
+  createdAt: string;
+  document: {
+    documentId: string;
+    title: string;
+    classification: string;
+    status: string;
+    documentType: string;
+  };
+  counterpart?: never;
+}
+
+export interface DocumentRelationshipsResponse {
+  documentId: string;
+  relationships: DocumentRelationshipEntry[];
+}
+
+export interface DocumentDetailResponse {
+  document: DocumentRow;
+  case: { caseId: string; status: string };
+  relationships: {
+    outgoing: DocumentRelationshipEntry[];
+    incoming: DocumentRelationshipEntry[];
+  };
+}
+
+export interface DocumentEventEntry {
+  id: string;
+  eventType: string;
+  result: string | null;
+  actor: { officerId: string; name: string } | null;
+  createdAt: string;
+  metadata: Record<string, unknown> | null;
+}
+
+export interface DocumentEventsResponse {
+  documentId: string;
+  caseId: string;
+  events: DocumentEventEntry[];
+}
+
+export interface IntegrityVerifyResponse {
+  documentId: string;
+  match: boolean;
+  recordedHash: string;
+  computedHash: string;
 }

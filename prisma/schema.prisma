@@ -96,6 +96,7 @@ model Department {
   caseOfficerRecords CaseOfficer[]
   transfersAsFrom    CaseTransfer[]   @relation("transferFrom")
   transfersAsTo      CaseTransfer[]   @relation("transferTo")
+  departmentDocuments CaseDocument[]  @relation("documentUploaderDepartment")
   evidenceCustodyOf  EvidenceItem[]           @relation("evidenceCustodian")
   evidenceCustodyFrom EvidenceCustodyEvent[] @relation("evidenceCustodyFrom")
   evidenceCustodyTo  EvidenceCustodyEvent[]   @relation("evidenceCustodyTo")
@@ -132,7 +133,8 @@ model Officer {
   transfersRequestedBy    CaseTransfer[] @relation("transferRequestedBy")
   transfersAcceptedBy     CaseTransfer[] @relation("transferAcceptedBy")
   documentsUploaded       CaseDocument[] @relation("documentUploader")
-  documentsRemoved        CaseDocument[] @relation("documentRemover")
+  documentRelCreators     DocumentRelationship[]  @relation("documentRelationshipCreator")
+  documentUploadSessions  DocumentUploadSession[] @relation("documentUploadSessionActor")
   evidenceCollected       EvidenceItem[] @relation("evidenceCollector")
   evidenceRegistered      EvidenceItem[] @relation("evidenceRegistrar")
   evidenceCustodyActions  EvidenceCustodyEvent[] @relation("evidenceCustodyActor")
@@ -229,6 +231,7 @@ model Case {
   transfers                     CaseTransfer[]
   events                        CaseEvent[]
   documents                     CaseDocument[]
+  documentUploadSessions        DocumentUploadSession[]
   evidenceItems                 EvidenceItem[]
 
   createdAt                     DateTime  @default(now())
@@ -356,56 +359,153 @@ model CaseEvent {
 }
 
 // ============================================================
-// PHASE 3 — Case Documents & Evidence (spec §58 forward refs).
+// PHASE 3 — Secure Digital Document Management (spec §5/§9/§50/§51).
 //
-// DOCUMENT VERSIONING: every uploaded version is its own
-// immutable CaseDocument row. Rows sharing a documentGroup form
-// one logical document; the newest ACTIVE row is the current
-// version, older rows become SUPERSEDED. Nothing is ever hard-
-// deleted: removal is a status (REMOVED) with actor + reason.
-// Files live OUTSIDE /public and are served only through the
-// case-authorized download API; SHA-256 checksums are recorded
-// at upload for integrity verification (justice-platform duty).
+// IMMUTABILITY MODEL (spec §2/§35): a COMMITTED CaseDocument row is
+// a legal record. After commit, documentId, caseId, binary content,
+// sha256Hash, originalFilename, mimeType, fileSize, storageKey,
+// uploadedBy identity and committedAt are FROZEN — no API mutates
+// them, and documents are never hard-deleted. Corrections and
+// supplements are NEW immutable rows linked through
+// DocumentRelationship; replacement flips the original to
+// SUPERSEDED (a status, never a deletion).
+//
+// TWO-PHASE COMMIT (spec §12/§22/§23): the binary is validated,
+// hashed (SHA-256 over plaintext), encrypted (AES-256-GCM) and
+// stored BEFORE metadata persists. A Document row exists only from
+// commit onward; failures are tracked on DocumentUploadSession and
+// staged objects are cleaned up or quarantined — a failed upload
+// can never appear as a valid document.
+//
+// STORAGE: files live OUTSIDE /public under opaque server-generated
+// keys (cases/{case-uuid}/documents/{uuid}/object); the original
+// filename is metadata only. SQLite keeps metadata only.
 // ============================================================
 
 model CaseDocument {
-  id                     String    @id @default(cuid())
-  documentId             String    @unique // public identity: DOC-MP-IND-2026-000001
+  id                     String    @id @default(cuid()) // internal id — never exposed as storage path
+  documentId             String    @unique // public identity: DOC-MP-IND-2026-000001 (backend-generated, immutable)
   caseId                 String
   case                   Case      @relation(fields: [caseId], references: [id], onDelete: Restrict)
-  documentGroup          String    // all versions of one logical document share this
-  version                Int       @default(1)
-  status                 String    @default("ACTIVE") // ACTIVE | SUPERSEDED | REMOVED
 
+  // classification
   title                  String
   description            String?
-  docType                String
-  originalFilename       String
-  mimeType               String    // decided server-side by magic bytes, never the client header
-  fileSize               Int
-  checksumSha256         String
-  fileKey                String    // server-generated UUID filename inside db/uploads/documents
+  documentType           String    // DOCUMENT_TYPES registry
+  documentCategory       String?   // DOCUMENT_CATEGORIES registry
 
+  // file facts — frozen after commit (spec §35)
+  originalFilename       String    // preserved as metadata only, never a storage path
+  storedFilename         String    // server-generated <uuid>.bin
+  mimeType               String    // server-detected via magic bytes
+  fileExtension          String
+  fileSize               Int
+  storageProvider        String    // STORAGE_PROVIDERS registry
+  storageKey             String    // opaque: cases/{case-uuid}/documents/{uuid}/object
+  sha256Hash             String    // integrity fingerprint over PLAINTEXT, computed pre-encryption
+  encryptionStatus       String    // ENCRYPTION_STATUSES registry
+  keyReference           String?   // key VERSION reference — never the key material
+
+  // lifecycle & security
+  status                 String    @default("COMMITTED") // DOCUMENT_STATUSES
+  classification         String    // DOCUMENT_CLASSIFICATIONS
+
+  // origin — frozen after commit; always derived server-side
   uploadedByOfficerId    String
   uploadedByOfficer      Officer   @relation("documentUploader", fields: [uploadedByOfficerId], references: [id], onDelete: Restrict)
   uploadedByDepartmentId String
+  uploadedByDepartment   Department @relation("documentUploaderDepartment", fields: [uploadedByDepartmentId], references: [id], onDelete: Restrict)
 
-  supersededByDocumentId String?   // public id of the row that replaced this version
-  removedByOfficerId     String?
-  removedByOfficer       Officer?  @relation("documentRemover", fields: [removedByOfficerId], references: [id], onDelete: SetNull)
-  removedAt              DateTime?
-  removalReason          String?
+  // dates are distinct (spec §28): documentDate is the business date,
+  // createdAt is upload time, committedAt is commit time.
+  documentDate           DateTime?
+  metadata               String?   // validated JSON block (referenceNumber, issuingDepartmentName, externalReference, tags)
 
-  createdAt              DateTime  @default(now())
+  committedAt            DateTime?
+  supersededByDocumentId String?   // public id of the designated successor (replacement workflow)
+  uploadSessionId        String?   @unique
+
+  relationshipsAsSource DocumentRelationship[] @relation("docRelationshipSource")
+  relationshipsAsTarget DocumentRelationship[] @relation("docRelationshipTarget")
+  events                DocumentEvent[]
+
+  createdAt              DateTime  @default(now()) // uploaded at
   updatedAt              DateTime  @updatedAt
 
-  @@unique([documentGroup, version])
   @@index([caseId])
   @@index([caseId, status])
-  @@index([documentGroup])
-  @@index([docType])
+  @@index([documentType])
+  @@index([classification])
   @@index([status])
+  @@index([uploadedByOfficerId])
   @@index([uploadedByDepartmentId])
+  @@index([createdAt])
+  @@index([sha256Hash]) // duplicate awareness (spec §66/§67) — hash is NOT a business identifier
+}
+
+model DocumentRelationship {
+  id                 String       @id @default(cuid())
+  sourceDocumentId   String       // the NEW/related document (e.g. the supplement)
+  sourceDocument     CaseDocument @relation("docRelationshipSource", fields: [sourceDocumentId], references: [id], onDelete: Restrict)
+  targetDocumentId   String       // the document it relates to (e.g. the original)
+  targetDocument     CaseDocument @relation("docRelationshipTarget", fields: [targetDocumentId], references: [id], onDelete: Restrict)
+  relationshipType   String       // DOCUMENT_RELATIONSHIP_TYPES
+  createdByOfficerId String
+  createdByOfficer   Officer      @relation("documentRelationshipCreator", fields: [createdByOfficerId], references: [id], onDelete: Restrict)
+  createdAt          DateTime     @default(now())
+
+  @@unique([sourceDocumentId, targetDocumentId, relationshipType])
+  @@index([sourceDocumentId])
+  @@index([targetDocumentId])
+  @@index([relationshipType])
+}
+
+// Audit event interface (spec §51/§52). Phase 4's immutable ledger
+// consumes these; sensitive content (passwords, keys, contents) is
+// never written into metadata.
+model DocumentEvent {
+  id             String        @id @default(cuid())
+  documentId     String?
+  document       CaseDocument? @relation(fields: [documentId], references: [id], onDelete: Restrict)
+  caseId         String
+  eventType      String        // DOCUMENT_EVENT_TYPES
+  actorOfficerId String?
+  departmentId   String?
+  sessionId      String?
+  result         String?       // SUCCESS | DENIED | FAILED | MATCH | MISMATCH
+  metadata       String?
+  createdAt      DateTime      @default(now())
+
+  @@index([documentId])
+  @@index([caseId])
+  @@index([eventType])
+  @@index([actorOfficerId])
+  @@index([createdAt])
+}
+
+// Two-phase upload state (spec §12/§22/§68/§69). The session is the
+// reconciliation record: staged objects referenced only by non-
+// COMMITTED sessions are orphan cleanup candidates.
+model DocumentUploadSession {
+  id                  String   @id @default(uuid())
+  caseId              String
+  case                Case     @relation(fields: [caseId], references: [id], onDelete: Restrict)
+  clientRequestId     String?  // idempotency key (spec §68)
+  status              String   @default("UPLOADING") // UPLOAD_SESSION_STATUSES
+  originalFilename    String?
+  declaredMimeType    String?
+  fileSize            Int?
+  storageKey          String?  // staged object (cleanup/reconciliation)
+  errorMessage        String?
+  createdDocumentId   String?  // public DOC id once committed
+  uploadedByOfficerId String
+  uploadedByOfficer   Officer  @relation("documentUploadSessionActor", fields: [uploadedByOfficerId], references: [id], onDelete: Restrict)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@unique([uploadedByOfficerId, clientRequestId])
+  @@index([caseId])
+  @@index([status])
   @@index([createdAt])
 }
 

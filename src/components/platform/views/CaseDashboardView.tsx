@@ -18,6 +18,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { StatusBadge } from "@/components/platform/common";
 import { EmptyState, ErrorState, LoadingState, FieldError } from "@/components/platform/common";
+import { DocumentsSection } from "@/components/platform/DocumentsSection";
 import { PriorityBadge } from "@/components/platform/views/CasesView";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -56,8 +57,8 @@ function fmtDate(d: string | null | undefined): string {
   return d ? new Date(d).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "—";
 }
 
-export function CaseDashboardView({ caseRef, onBack }: { caseRef: string; onBack: () => void }) {
-  const { me } = useAuth();
+export function CaseDashboardView({ caseRef, onBack, onUploadDocument, onOpenDocument }: { caseRef: string; onBack: () => void; onUploadDocument: () => void; onOpenDocument: (documentId: string, mode: "details" | "view") => void }) {
+  const { me, meta } = useAuth();
   const [detail, setDetail] = React.useState<CaseDetail | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
@@ -406,18 +407,13 @@ export function CaseDashboardView({ caseRef, onBack }: { caseRef: string; onBack
         </CardContent>
       </Card>
 
-      {/* ---------- DOCUMENTS (Phase 3 placeholder, spec §26/§58) ---------- */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-base"><FileText aria-hidden size={17} /> Documents</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <EmptyState
-            title="No documents have been added yet."
-            description="Document management will be available in the next phase."
-          />
-        </CardContent>
-      </Card>
+      {/* ---------- DOCUMENTS (Phase 3, spec §29/§64) ---------- */}
+      <DocumentsSection
+        caseRef={caseRef}
+        meta={meta}
+        onUpload={onUploadDocument}
+        onOpenDocument={onOpenDocument}
+      />
 
       {/* ---------- ACCESS (spec §14) ---------- */}
       <Card>

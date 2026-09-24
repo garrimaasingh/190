@@ -9,6 +9,14 @@ import {
   CASE_TITLE_MAX_LENGTH,
   CASE_DESCRIPTION_MAX_LENGTH,
   CASE_NUMBER_MAX_LENGTH,
+  DOCUMENT_TYPES,
+  DOCUMENT_CATEGORIES,
+  DOCUMENT_CLASSIFICATIONS,
+  DOCUMENT_TITLE_MAX_LENGTH,
+  DOCUMENT_DESCRIPTION_MAX_LENGTH,
+  DOCUMENT_REFERENCE_MAX_LENGTH,
+  DOCUMENT_TAG_MAX_LENGTH,
+  DOCUMENT_TAGS_MAX_COUNT,
 } from "@/lib/constants";
 
 // ============================================================
@@ -130,6 +138,7 @@ export const listQuerySchema = z.object({
   departmentType: z.string().optional(),
   status: z.string().optional(),
   role: z.string().optional(),
+  departmentId: z.string().optional(),
   page: z.coerce.number().int().min(1).optional().default(1),
   pageSize: z.coerce.number().int().min(1).max(100).optional().default(10),
 });
@@ -223,4 +232,69 @@ export const createTransferSchema = z.object({
   toOfficerId: z.string().optional().or(z.literal("")).transform((v) => (v ? v : undefined)),
   reason: z.string().trim().min(4, "A reason is required for the custody transfer.").max(1000),
   transferNotes: z.string().trim().max(2000).optional().or(z.literal("")).transform((v) => (v ? v : undefined)),
+});
+
+// ============================================================
+// PHASE 3 — document metadata schemas (spec §27/§72).
+// Server-controlled fields (uploadedByOfficerId, sha256Hash,
+// storageKey, committedAt, status) are NOT part of any client
+// schema — .strict() rejects client attempts to smuggle them.
+// FormData is parsed field-by-field in the route; the schema here
+// validates the resulting object.
+// ============================================================
+
+const documentTagsSchema = z
+  .array(
+    z
+      .string()
+      .trim()
+      .min(1)
+      .max(DOCUMENT_TAG_MAX_LENGTH)
+      .regex(/^[^<>{}"']*$/, "Tags may not contain HTML or quote characters.")
+  )
+  .max(DOCUMENT_TAGS_MAX_COUNT, `At most ${DOCUMENT_TAGS_MAX_COUNT} tags are allowed.`)
+  .optional();
+
+const documentMetadataBlock = z.object({
+  referenceNumber: z.string().trim().max(DOCUMENT_REFERENCE_MAX_LENGTH).optional().or(z.literal("")),
+  issuingDepartmentName: z.string().trim().max(160).optional().or(z.literal("")),
+  externalReference: z.string().trim().max(DOCUMENT_REFERENCE_MAX_LENGTH).optional().or(z.literal("")),
+  tags: documentTagsSchema,
+});
+
+export const documentUploadSchema = documentMetadataBlock
+  .extend({
+    title: z.string().trim().min(2, "Document title is required.").max(DOCUMENT_TITLE_MAX_LENGTH),
+    description: z.string().trim().max(DOCUMENT_DESCRIPTION_MAX_LENGTH).optional().or(z.literal("")),
+    documentType: z.enum(DOCUMENT_TYPES),
+    documentCategory: z.enum(DOCUMENT_CATEGORIES).optional().or(z.literal("")),
+    classification: z.enum(DOCUMENT_CLASSIFICATIONS),
+    documentDate: z.coerce.date().optional(),
+    // Idempotency key (spec §68) — opaque, length-bounded, never interpreted.
+    clientRequestId: z
+      .string()
+      .trim()
+      .regex(/^[A-Za-z0-9._:-]{8,100}$/, "clientRequestId must be 8-100 URL-safe characters.")
+      .optional(),
+  })
+  .strict();
+
+export const documentRelationshipSchema = z
+  .object({
+    targetDocumentId: z.string().trim().min(4).max(60),
+    relationshipType: z.enum(["RELATED", "REFERENCE"]),
+  })
+  .strict();
+
+export const documentListQuerySchema = z.object({
+  q: z.string().trim().max(120).optional(),
+  type: z.string().optional(),
+  classification: z.string().optional(),
+  status: z.string().optional(),
+  departmentId: z.string().optional(),
+  uploadedBy: z.string().optional(),
+  dateFrom: z.string().trim().optional(),
+  dateTo: z.string().trim().optional(),
+  page: z.coerce.number().int().min(1).optional().default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).optional().default(20),
 });

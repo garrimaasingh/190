@@ -458,6 +458,245 @@ async function main() {
 
   void sysadminOfficer;
 
+  // ============================================================
+  // PHASE 3 — demo documents on CASE-MP-IND-2026-000001 (spec §91).
+  // Synthetic generated PDFs ONLY (no real confidential material).
+  // Seeded through the SAME pipeline as the API: SHA-256 over the
+  // plaintext → AES-256-GCM encrypt → opaque storage key → commit.
+  // ============================================================
+  {
+    const case1 = await db.case.findUnique({ where: { caseId: "CASE-MP-IND-2026-000001" } });
+    if (case1) {
+      const existingDocs = await db.caseDocument.count({ where: { caseId: case1.id } });
+      if (existingDocs === 0) {
+        const { encryptDocument } = await import("@/lib/documents/encryption");
+        const { calculateSha256 } = await import("@/lib/documents/integrity");
+        const { DocumentStorage, buildStorageKey } = await import("@/lib/documents/storage");
+        const { randomUUID } = await import("crypto");
+
+        // Minimal but fully valid PDF 1.4 generator (synthetic demo content).
+        const makePdf = (title: string, lines: string[]): Buffer => {
+          const esc = (s: string) => s.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
+          const body = [
+            "BT /F1 14 Tf 1 0 0 1 60 780 Tm (DEMO / SYNTHETIC DOCUMENT - NOT A REAL LEGAL RECORD) Tj",
+            "BT /F1 12 Tf",
+            ...lines.map((l, i) => `1 0 0 1 60 ${745 - i * 20} Tm (${esc(l)}) Tj`),
+            "ET",
+          ].join("\n");
+          const content = body;
+          const objects = [
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+            `<< /Length ${Buffer.byteLength(content, "latin1")} >>\nstream\n${content}\nendstream`,
+          ];
+          let pdf = "%PDF-1.4\n";
+          const offsets: number[] = [];
+          objects.forEach((obj, i) => {
+            offsets.push(Buffer.byteLength(pdf, "latin1"));
+            pdf += `${i + 1} 0 obj\n${obj}\nendobj\n`;
+          });
+          const xrefStart = Buffer.byteLength(pdf, "latin1");
+          pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+          for (const o of offsets) pdf += `${String(o).padStart(10, "0")} 00000 n \n`;
+          pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF\n`;
+          return Buffer.from(pdf, "latin1");
+        };
+
+        interface DemoDoc {
+          documentId: string;
+          title: string;
+          documentType: string;
+          documentCategory: string;
+          classification: string;
+          description: string;
+          uploaderId: string;
+          uploadedDaysAgo: number;
+          documentDaysAgo: number;
+          referenceNumber?: string;
+          tags?: string[];
+          pdf: Buffer;
+          filename: string;
+        }
+
+        const demoDocs: DemoDoc[] = [
+          {
+            documentId: "DOC-MP-IND-2026-000001",
+            title: "First Information Report — FIR/124/2026",
+            documentType: "FIR",
+            documentCategory: "CASE_RECORD",
+            classification: "RESTRICTED",
+            description: "First Information Report registered at Indore Police (synthetic demo document).",
+            uploaderId: arjun.id,
+            uploadedDaysAgo: 18,
+            documentDaysAgo: 19,
+            referenceNumber: "FIR/124/2026",
+            tags: ["fir", "registration"],
+            filename: "FIR-124-2026.pdf",
+            pdf: makePdf("FIRST INFORMATION REPORT", [
+              "Case: FIR/124/2026 - Demonstration Cybercrime Investigation",
+              "Police Station: Indore Cyber Cell",
+              "Sections: IT Act 66C/66D, IPC 420 (demo reference only)",
+              "Complainant details recorded in the case file.",
+            ]),
+          },
+          {
+            documentId: "DOC-MP-IND-2026-000002",
+            title: "Investigation Report — Phase 1",
+            documentType: "INVESTIGATION_REPORT",
+            documentCategory: "INVESTIGATION",
+            classification: "CONFIDENTIAL",
+            description: "Interim investigation findings (synthetic demo document).",
+            uploaderId: vishnu.id,
+            uploadedDaysAgo: 9,
+            documentDaysAgo: 10,
+            tags: ["investigation", "interim"],
+            filename: "Investigation-Report-Phase1.pdf",
+            pdf: makePdf("INVESTIGATION REPORT - PHASE 1", [
+              "Case: CASE-MP-IND-2026-000001",
+              "Summary of digital-trail analysis (synthetic).",
+              "Pending forensic confirmation of seized devices.",
+            ]),
+          },
+          {
+            documentId: "DOC-MP-IND-2026-000003",
+            title: "Forensic Report — Device Analysis",
+            documentType: "FORENSIC_REPORT",
+            documentCategory: "FORENSIC",
+            classification: "RESTRICTED",
+            description: "Scanned copy of the forensic examination report received from FSL (synthetic demo document).",
+            uploaderId: vishnu.id,
+            uploadedDaysAgo: 4,
+            documentDaysAgo: 5,
+            referenceNumber: "FSL/EXP/2026/0091",
+            tags: ["forensics", "devices"],
+            filename: "Forensic-Report-Device-Analysis.pdf",
+            pdf: makePdf("FORENSIC EXAMINATION REPORT", [
+              "Referred by: Indore Police (Case CASE-MP-IND-2026-000001)",
+              "Exhibit: mobile handset analysis (synthetic findings).",
+              "Conclusion: artefacts consistent with the alleged fraud flow.",
+            ]),
+          },
+          {
+            documentId: "DOC-MP-IND-2026-000004",
+            title: "Forensic Report — Supplement",
+            documentType: "FORENSIC_REPORT",
+            documentCategory: "FORENSIC",
+            classification: "INTERNAL",
+            description: "Supplementary findings adding information to DOC-MP-IND-2026-000003 (synthetic demo document).",
+            uploaderId: vishnu.id,
+            uploadedDaysAgo: 2,
+            documentDaysAgo: 2,
+            tags: ["forensics", "supplement"],
+            filename: "Forensic-Report-Supplement.pdf",
+            pdf: makePdf("FORENSIC REPORT - SUPPLEMENT", [
+              "Supplement to: DOC-MP-IND-2026-000003 (Device Analysis).",
+              "Additional extraction results (synthetic).",
+              "Original report remains preserved and unchanged.",
+            ]),
+          },
+        ];
+
+        for (const d of demoDocs) {
+          const sha256Hash = calculateSha256(d.pdf);
+          const { blob, keyReference } = encryptDocument(d.pdf);
+          const documentUuid = randomUUID();
+          const storageKey = buildStorageKey(case1.id, documentUuid);
+          DocumentStorage.ensureRoot();
+          await DocumentStorage.put_object(storageKey, blob);
+
+          const committedAt = daysAgo(d.uploadedDaysAgo, 3);
+          const doc = await db.caseDocument.create({
+            data: {
+              documentId: d.documentId,
+              caseId: case1.id,
+              title: d.title,
+              description: d.description,
+              documentType: d.documentType,
+              documentCategory: d.documentCategory,
+              originalFilename: d.filename,
+              storedFilename: `${documentUuid}.bin`,
+              mimeType: "application/pdf",
+              fileExtension: "pdf",
+              fileSize: d.pdf.length,
+              storageProvider: "LOCAL_ENCRYPTED_FS",
+              storageKey,
+              sha256Hash,
+              encryptionStatus: "ENCRYPTED_AES_256_GCM",
+              keyReference,
+              status: "COMMITTED",
+              classification: d.classification,
+              uploadedByOfficerId: d.uploaderId,
+              uploadedByDepartmentId: police.id,
+              documentDate: daysAgo(d.documentDaysAgo),
+              metadata: JSON.stringify({
+                ...(d.referenceNumber ? { referenceNumber: d.referenceNumber } : {}),
+                ...(d.tags ? { tags: d.tags } : {}),
+              }),
+              committedAt,
+              createdAt: daysAgo(d.uploadedDaysAgo, 2),
+            },
+          });
+          await db.caseDocument.update({ where: { id: doc.id }, data: { createdAt: daysAgo(d.uploadedDaysAgo, 2) } });
+
+          await db.documentEvent.create({
+            data: {
+              documentId: doc.id,
+              caseId: case1.id,
+              eventType: "DOCUMENT_COMMITTED",
+              actorOfficerId: d.uploaderId,
+              departmentId: police.id,
+              result: "SUCCESS",
+              metadata: JSON.stringify({ documentId: d.documentId, sha256: sha256Hash, seeded: true }),
+              createdAt: committedAt,
+            },
+          });
+          await db.caseEvent.create({
+            data: {
+              caseId: case1.id,
+              eventType: "DOCUMENT_COMMITTED",
+              actorOfficerId: d.uploaderId,
+              departmentId: police.id,
+              targetType: "DOCUMENT",
+              targetId: d.documentId,
+              description: `Document committed: ${d.title} (${d.documentId})`,
+              createdAt: committedAt,
+            },
+          });
+
+          if (d.documentId === "DOC-MP-IND-2026-000004") {
+            const target = await db.caseDocument.findUnique({ where: { documentId: "DOC-MP-IND-2026-000003" } });
+            if (target) {
+              await db.documentRelationship.create({
+                data: {
+                  sourceDocumentId: doc.id,
+                  targetDocumentId: target.id,
+                  relationshipType: "SUPPLEMENT",
+                  createdByOfficerId: d.uploaderId,
+                  createdAt: committedAt,
+                },
+              });
+              await db.documentEvent.create({
+                data: {
+                  documentId: doc.id,
+                  caseId: case1.id,
+                  eventType: "DOCUMENT_SUPPLEMENT_CREATED",
+                  actorOfficerId: d.uploaderId,
+                  departmentId: police.id,
+                  result: "SUCCESS",
+                  metadata: JSON.stringify({ documentId: d.documentId, relatedTo: target.documentId, relationshipType: "SUPPLEMENT" }),
+                  createdAt: committedAt,
+                },
+              });
+            }
+          }
+        }
+        console.log("  Documents  : 4 demo documents (1 supplement relationship) on CASE-MP-IND-2026-000001");
+      }
+    }
+  }
+
   console.log("============================================================");
   console.log("Phase 1 + Phase 2 seed complete  [DEMO / DEVELOPMENT DATA]");
   console.log(`  Country : ${india.name} (${india.code})`);

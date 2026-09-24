@@ -17,6 +17,9 @@ import { EventsView } from "@/components/platform/views/EventsView";
 import { CasesView } from "@/components/platform/views/CasesView";
 import { CaseCreateView } from "@/components/platform/views/CaseCreateView";
 import { CaseDashboardView } from "@/components/platform/views/CaseDashboardView";
+import { DocumentUploadView, type RelatedWorkflow } from "@/components/platform/views/DocumentUploadView";
+import { DocumentDetailsView } from "@/components/platform/views/DocumentDetailsView";
+import { DocumentViewerView } from "@/components/platform/views/DocumentViewerView";
 import { LoadingState, ErrorState } from "@/components/platform/common";
 import { ShieldAlert } from "lucide-react";
 
@@ -32,6 +35,9 @@ interface Navigation {
   departmentId?: string;
   officerId?: string;
   caseId?: string;
+  documentId?: string;
+  documentMode?: "details" | "view";
+  relatedWorkflow?: RelatedWorkflow;
 }
 function AccessDenied({ what }: { what: string }) {
   return (
@@ -42,7 +48,7 @@ function AccessDenied({ what }: { what: string }) {
 }
 
 function Shell() {
-  const { status, me } = useAuth();
+  const { status, me, meta } = useAuth();
   const [nav, setNav] = React.useState<Navigation>({ view: "dashboard" });
 
   function navigate(view: ViewKey) {
@@ -89,7 +95,59 @@ function Shell() {
       break;
     case "case-detail":
       content = nav.caseId ? (
-        <CaseDashboardView caseRef={nav.caseId} onBack={() => navigate("cases")} />
+        <CaseDashboardView
+          caseRef={nav.caseId}
+          onBack={() => navigate("cases")}
+          onUploadDocument={() => setNav({ view: "case-document-upload", caseId: nav.caseId })}
+          onOpenDocument={(documentId, mode) =>
+            setNav({ view: mode === "view" ? "case-document-view" : "case-document-detail", caseId: nav.caseId, documentId, documentMode: mode })
+          }
+        />
+      ) : (
+        <AccessDenied what="this page" />
+      );
+      break;
+    case "case-document-upload":
+      content = nav.caseId ? (
+        <DocumentUploadView
+          caseRef={nav.caseId}
+          meta={meta}
+          workflow={nav.relatedWorkflow ?? null}
+          targetDocumentId={nav.documentId ?? null}
+          onCommitted={(documentId, mode) =>
+            setNav({ view: mode === "view" ? "case-document-view" : "case-document-detail", caseId: nav.caseId, documentId })
+          }
+          onBack={() => setNav(nav.documentId ? { view: "case-document-detail", caseId: nav.caseId, documentId: nav.documentId } : { view: "case-detail", caseId: nav.caseId })}
+        />
+      ) : (
+        <AccessDenied what="document upload" />
+      );
+      break;
+    case "case-document-detail":
+      content = nav.caseId && nav.documentId ? (
+        <DocumentDetailsView
+          caseRef={nav.caseId}
+          documentId={nav.documentId}
+          meta={meta}
+          onBack={() => setNav({ view: "case-detail", caseId: nav.caseId })}
+          onOpenDocument={(documentId, mode) =>
+            setNav({ view: mode === "view" ? "case-document-view" : "case-document-detail", caseId: nav.caseId, documentId, documentMode: mode })
+          }
+          onStartRelated={(workflow) => setNav({ view: "case-document-upload", caseId: nav.caseId, documentId: nav.documentId, relatedWorkflow: workflow })}
+          onView={() => setNav({ view: "case-document-view", caseId: nav.caseId, documentId: nav.documentId })}
+        />
+      ) : (
+        <AccessDenied what="this page" />
+      );
+      break;
+    case "case-document-view":
+      content = nav.caseId && nav.documentId ? (
+        <DocumentViewerView
+          caseRef={nav.caseId}
+          documentId={nav.documentId}
+          onBack={() => setNav({ view: nav.documentMode === "details" ? "case-document-detail" : "case-detail", caseId: nav.caseId, documentId: nav.documentId })}
+          onDetails={() => setNav({ view: "case-document-detail", caseId: nav.caseId, documentId: nav.documentId })}
+        />
       ) : (
         <AccessDenied what="this page" />
       );
