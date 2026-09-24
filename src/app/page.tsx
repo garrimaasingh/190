@@ -51,6 +51,12 @@ function Shell() {
   const { status, me, meta } = useAuth();
   const [nav, setNav] = React.useState<Navigation>({ view: "dashboard" });
 
+  // Signed-out users must never land on the previous session's view
+  // after signing in again — reset navigation when anonymous.
+  React.useEffect(() => {
+    if (status === "anonymous") setNav({ view: "dashboard" });
+  }, [status]);
+
   function navigate(view: ViewKey) {
     setNav({ view });
   }

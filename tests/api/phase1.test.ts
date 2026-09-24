@@ -498,6 +498,35 @@ describe("Officers", () => {
     expect(officerPolice.data().role).toBe("OFFICER");
   });
 
+  test("password change: works, authenticates, rejects wrong current password", async () => {
+    // dedicated account so the demo credentials are untouched
+    const email = `pwd.change.${Date.now()}@demo.gov.in`;
+    await adminPolice.post(`/api/v1/departments/${ids.policeDept}/officers`, {
+      name: "Password Change Probe",
+      email,
+      designation: "Constable",
+      role: "OFFICER",
+      password: "First@Pass1",
+      status: "ACTIVE",
+    });
+    const probe = new Client();
+    await probe.login(email, "First@Pass1");
+    expect(probe.lastStatus).toBe(200);
+
+    // wrong current password rejected
+    await probe.post("/api/v1/profile/password", { currentPassword: "Wrong@Pass1", newPassword: "Second@Pass2" });
+    expect(probe.lastStatus).toBe(401);
+
+    // correct change → old password dead, new password live
+    await probe.post("/api/v1/profile/password", { currentPassword: "First@Pass1", newPassword: "Second@Pass2" });
+    expect(probe.lastStatus).toBe(200);
+    const reLogin = new Client();
+    await reLogin.login(email, "First@Pass1");
+    expect(reLogin.lastStatus).toBe(401);
+    await reLogin.login(email, "Second@Pass2");
+    expect(reLogin.lastStatus).toBe(200);
+  });
+
   test("officer of another department cannot view officer profile", async () => {
     await adminFsl.get(`/api/v1/departments/${ids.fslDept}/officers`);
     const fslOfficer = adminFsl.data().items[0];

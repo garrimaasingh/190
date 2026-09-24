@@ -103,3 +103,22 @@ Work Log:
 Stage Summary:
 - Phase 3 COMPLETE: documents belong to cases; validate→hash→encrypt→store→commit pipeline with no partial commits; committed records immutable (no mutation APIs); supplement/correction/replacement create NEW records; classification enforces clearance beyond case access (in-query, §64); custody transfer moves authority without touching history; download/view/denied all event-audited; Phase 4 ledger can anchor (documentId, sha256, committedAt, actor, caseId) without redesign.
 - Ops note: run phase3 suite → reset+reseed → restart daemon → smoke → revoke sessions. Seed PDFs are synthetic; scanner is a DEV STUB (labeled) — real AV required for production.
+
+---
+Task ID: 6
+Agent: Super Z (main agent)
+Task: Full-feature verification pass (all phases) — test every feature, fix defects
+
+Work Log:
+- Backend suites: phase2 77/77, phase3 60/60, phase1 initially flaky (1 intermittent failure on first run after DB reset). Investigated both flake classes and fixed two REAL defects:
+- FIX 1 (ID-generation, latent bug in ALL generators): seed data contains a gap (no OFF-MP-IND-00006), so count-based sequencing computed candidate `00008` (existing) on every retry, exhausted 5 attempts and fell back to a timestamp id (observed OFF-MP-IND-55657798) violating the fixed-width format. Same flaw existed in case/transfer/document/evidence/department generators (any hard-deleted row with higher sequence would trigger it). Rewrote src/lib/ids.ts + src/lib/cases/ids.ts: candidates now derive from the MAX well-formed numeric suffix (exact width filter so legacy fallback ids can't poison the sequence) + exists() re-check + retry + last-resort fallback. Verified live: next officer correctly OFF-MP-IND-00009 with gap+residue present.
+- FIX 2 (password change endpoint 404): frontend + handler doc-comment target POST /api/v1/profile/password, but the handler was exported from the base /api/v1/profile route (mounted at the wrong path — every password change attempt 404'd silently; phase1 suite never covered it). Moved POST to dedicated src/app/api/v1/profile/password/route.ts, cleaned unused imports, added phase1 regression test (change→login new→wrong-current 401→revert) — suite now 51/51.
+- FIX 3 (test robustness, not product): phase3 "RELATED link" test was run-order dependent on a fresh DB (409 on re-run); now accepts 201/409 and verifies the link via GET. Verified phase3 idempotent across consecutive runs.
+- UX FIX: SPA nav state survived logout→login (signed-in user landed on the previous session's last view); Shell now resets nav to dashboard when status becomes anonymous.
+- E2E browser sweep (agent-browser), all verified working: invalid-login error, sysadmin/arjun/meera/auditor logins, logout, role dashboards, departments list+profile, officers list+detail, identity events, organization explorer, profile view, settings + permission matrix, password dialog, cases list+search+empty state, case creation wizard (4 sections → CASE-000007), assign officer (LEAD_INVESTIGATOR), add participating department, status change OPEN→UNDER_INVESTIGATION, transfer request (2-step confirm) → meera's incoming mailbox → accept → custody flips to FSL, police retained ORIGINATING, timeline complete; document upload TXT + PNG as new custodian (meera), text viewer renders content (XSS-safe text node), image viewer renders PNG, PDF authorized stream verified via top-level render (headless Chromium cannot render PDFs in ANY iframe — environment limitation, documented; real browsers render the sandboxed frame); auditor read-only gating (no New Case, no Upload, workflow actions hidden, fingerprint visible). Mobile 390px spot-check clean.
+- Known environment limitation (not a defect): headless Chromium lacks iframe PDF plugin rendering — verified stream bytes + headers + top-level render instead.
+- Final state: all suites green (51+77+60 = 188), ESLint clean, pristine reset+reseed (8 officers/5 depts/6 cases/3 transfers/4 docs/0 sessions), smoke 13/13, smoke sessions revoked, dev.log clean.
+
+Stage Summary:
+- All features across Phases 1-3 verified working end-to-end; 3 defects fixed (1 latent ID-generation bug affecting all entities, 1 broken endpoint, 1 UX defect) + 1 test-robustness fix.
+- Regression floor raised: phase1 51 tests (password flow now covered).

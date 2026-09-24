@@ -9,10 +9,19 @@ import { db } from "@/lib/db";
 // - Retry-on-conflict guards concurrent creation (same pattern
 //   as Phase 1 department/officer ID generation).
 //
+// SEQUENCE CORRECTNESS: candidates derive from the MAX numeric
+// suffix already issued for the prefix — never from a row count.
+// A count-based sequence silently breaks when the data has gaps
+// (hard-deleted cases/rows in maintenance or test flows): count+1
+// can point at an existing id, every retry recomputes the same
+// dead candidate, and generation falls to the timestamp fallback,
+// violating the documented fixed-width format (observed as
+// OFF-/DOC- ids like `...-55657798` after deletes).
+//
 // The geo parameter is structurally typed (IdGeo) so callers can
 // pass either a full ResolvedGeo (case creation) or a light
-// projection of the case's stored geography (Phase 3 documents
-// / evidence, which inherit the case's geo).
+// projection of the case's stored geography (documents/evidence,
+// which inherit the case's geo).
 // ============================================================
 
 export interface IdGeo {
@@ -32,64 +41,103 @@ function stateFragment(geo: IdGeo): string {
   return geo.state.code.replace(/[^A-Za-z0-9]/g, "").slice(0, 4).toUpperCase() || "XXXX";
 }
 
-export async function generateCaseId(geo: IdGeo, year: number): Promise<string> {
-  const prefix = `CASE-${stateFragment(geo)}-${districtFragment(geo)}-${year}-`;
-
+/**
+ * Max-suffix sequence generator shared by all case-domain ids.
+ * `loadExisting` returns every id sharing the prefix (only the
+ * numeric suffix of each is inspected — non-numeric fallback ids
+ * from the safety net are ignored for sequencing but counted by
+ * max, since parse skips them).
+ */
+async function nextSequenceId(
+  prefix: string,
+  width: number,
+  loadExisting: () => Promise<string[]>,
+  exists: (candidate: string) => Promise<boolean>
+): Promise<string> {
   for (let attempt = 0; attempt < 5; attempt++) {
-    const count = await db.case.count({
-      where: { caseId: { startsWith: prefix } },
-    });
-    const candidate = `${prefix}${pad(count + 1, 6)}`;
-    const exists = await db.case.findUnique({ where: { caseId: candidate } });
-    if (!exists) return candidate;
+    const ids = await loadExisting();
+    let max = 0;
+    for (const id of ids) {
+      const suffix = id.slice(prefix.length);
+      // Only WELL-FORMED suffixes (exact width) drive the sequence —
+      // legacy/timestamp fallback ids must not poison the format.
+      if (new RegExp(`^\\d{${width}}$`).test(suffix)) {
+        const value = parseInt(suffix, 10);
+        if (Number.isFinite(value) && value > max) max = value;
+      }
+    }
+    const candidate = `${prefix}${pad(max + 1, 6)}`;
+    if (!(await exists(candidate))) return candidate;
   }
   return `${prefix}${Date.now().toString().slice(-9)}`;
+}
+
+export async function generateCaseId(geo: IdGeo, year: number): Promise<string> {
+  const prefix = `CASE-${stateFragment(geo)}-${districtFragment(geo)}-${year}-`;
+  return nextSequenceId(
+    prefix,
+    6,
+    async () =>
+      (
+        await db.case.findMany({
+          where: { caseId: { startsWith: prefix } },
+          select: { caseId: true },
+        })
+      ).map((r) => r.caseId),
+    async (candidate) => !!(await db.case.findUnique({ where: { caseId: candidate } }))
+  );
 }
 
 export async function generateTransferId(geo: IdGeo, year: number): Promise<string> {
   const prefix = `TRF-${stateFragment(geo)}-${districtFragment(geo)}-${year}-`;
-
-  for (let attempt = 0; attempt < 5; attempt++) {
-    const count = await db.caseTransfer.count({
-      where: { transferId: { startsWith: prefix } },
-    });
-    const candidate = `${prefix}${pad(count + 1, 6)}`;
-    const exists = await db.caseTransfer.findUnique({ where: { transferId: candidate } });
-    if (!exists) return candidate;
-  }
-  return `${prefix}${Date.now().toString().slice(-9)}`;
+  return nextSequenceId(
+    prefix,
+    6,
+    async () =>
+      (
+        await db.caseTransfer.findMany({
+          where: { transferId: { startsWith: prefix } },
+          select: { transferId: true },
+        })
+      ).map((r) => r.transferId),
+    async (candidate) => !!(await db.caseTransfer.findUnique({ where: { transferId: candidate } }))
+  );
 }
 
-// ============================================================
+// ------------------------------------------------------------
 // PHASE 3 — document & evidence identity. Documents/evidence
 // inherit the case's geography; generation follows the same
 // backend-only, retry-on-conflict pattern.
-// ============================================================
+// ------------------------------------------------------------
 
 export async function generateDocumentId(geo: IdGeo, year: number): Promise<string> {
   const prefix = `DOC-${stateFragment(geo)}-${districtFragment(geo)}-${year}-`;
-
-  for (let attempt = 0; attempt < 5; attempt++) {
-    const count = await db.caseDocument.count({
-      where: { documentId: { startsWith: prefix } },
-    });
-    const candidate = `${prefix}${pad(count + 1, 6)}`;
-    const exists = await db.caseDocument.findUnique({ where: { documentId: candidate } });
-    if (!exists) return candidate;
-  }
-  return `${prefix}${Date.now().toString().slice(-9)}`;
+  return nextSequenceId(
+    prefix,
+    6,
+    async () =>
+      (
+        await db.caseDocument.findMany({
+          where: { documentId: { startsWith: prefix } },
+          select: { documentId: true },
+        })
+      ).map((r) => r.documentId),
+    async (candidate) => !!(await db.caseDocument.findUnique({ where: { documentId: candidate } }))
+  );
 }
 
 export async function generateEvidenceId(geo: IdGeo, year: number): Promise<string> {
   const prefix = `EV-${stateFragment(geo)}-${districtFragment(geo)}-${year}-`;
-
-  for (let attempt = 0; attempt < 5; attempt++) {
-    const count = await db.evidenceItem.count({
-      where: { evidenceId: { startsWith: prefix } },
-    });
-    const candidate = `${prefix}${pad(count + 1, 6)}`;
-    const exists = await db.evidenceItem.findUnique({ where: { evidenceId: candidate } });
-    if (!exists) return candidate;
-  }
-  return `${prefix}${Date.now().toString().slice(-9)}`;
+  return nextSequenceId(
+    prefix,
+    6,
+    async () =>
+      (
+        await db.evidenceItem.findMany({
+          where: { evidenceId: { startsWith: prefix } },
+          select: { evidenceId: true },
+        })
+      ).map((r) => r.evidenceId),
+    async (candidate) => !!(await db.evidenceItem.findUnique({ where: { evidenceId: candidate } }))
+  );
 }

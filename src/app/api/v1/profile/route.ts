@@ -1,8 +1,8 @@
 import { db } from "@/lib/db";
 import { handleApiError, jsonOk, ApiError } from "@/lib/api";
-import { requirePermission, hashPassword, verifyPassword, clientIp } from "@/lib/auth";
+import { requirePermission, clientIp } from "@/lib/auth";
 import { PERMISSIONS } from "@/lib/permissions";
-import { updateProfileSchema, changePasswordSchema } from "@/lib/validation";
+import { updateProfileSchema } from "@/lib/validation";
 import { recordIdentityEvent, IDENTITY_EVENTS } from "@/lib/events";
 
 export const runtime = "nodejs";
@@ -81,42 +81,6 @@ export async function PATCH(req: Request) {
     });
 
     return jsonOk(updated);
-  } catch (err) {
-    return handleApiError(err);
-  }
-}
-
-// POST /api/v1/profile/password — change own password.
-export async function POST(req: Request) {
-  try {
-    const ctx = await requirePermission(req, PERMISSIONS.PASSWORD_UPDATE);
-    const body = await req.json().catch(() => ({}));
-    const { currentPassword, newPassword } = changePasswordSchema.parse(body);
-
-    const officer = await db.officer.findUnique({ where: { id: ctx.officer.id } });
-    if (!officer) throw new ApiError(404, "NOT_FOUND", "Officer not found.");
-
-    if (!verifyPassword(currentPassword, officer.passwordHash)) {
-      throw new ApiError(401, "INVALID_CREDENTIALS", "Current password is incorrect.");
-    }
-
-    await db.officer.update({
-      where: { id: officer.id },
-      data: { passwordHash: hashPassword(newPassword) },
-    });
-
-    await recordIdentityEvent({
-      eventType: IDENTITY_EVENTS.OFFICER_PASSWORD_CHANGED,
-      actorOfficerId: officer.id,
-      departmentId: officer.departmentId,
-      targetType: "OFFICER",
-      targetId: officer.id,
-      metadata: { self: true },
-      ipAddress: clientIp(req),
-      userAgent: req.headers.get("user-agent"),
-    });
-
-    return jsonOk({ changed: true });
   } catch (err) {
     return handleApiError(err);
   }
