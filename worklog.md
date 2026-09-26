@@ -258,3 +258,21 @@ Work Log:
 
 Stage Summary:
 - Phase 6 functionality re-verified end-to-end: 18/18 suite (twice), schema/services/APIs/UI all present, seed projects all 6 case graphs, staleness + clearance filtering + confirmed-only projection all tested green. Platform now 353/354 with the ONE restored missing phase8 route (lost file, reconstructed) and hardened test clients. Root-cause knowledge banked: pkill self-match trap, background-runner fragility, warmup 404 masking, re-seed-on-used-DB corruption.
+worklog append test Sat Sep 26 18:44:16 UTC 2026
+
+---
+Task ID: 13
+Agent: Super Z (main agent)
+Task: Fix navigation/login "glitches" (user report: glitch when switching case→dashboard and when logging in; screenshot did not arrive on disk, reproduced live instead)
+
+Work Log:
+- Reproduced in browser (agent-browser, arjun/DEPARTMENT_ADMIN): (a) FULL PAGE RELOADS during pure SPA interaction — 2x `GET / (Document) 200` while clicking around; page goes white → full-page auth skeleton → shell re-renders, client state lost (login form reset mid-flow → empty-submit 422). (b) Scroll offset preserved across view switches — case page scrolled to 4000px, click Dashboard → landed at scrollY=87 (clamped to bottom of the shorter dashboard view), never at the top.
+- ROOT CAUSE (repro-proven): `"dev": "... | tee dev.log"` wrote the server log INSIDE the watched project root. Every HTTP request appended to it → webpack watcher fired → endless `[Fast Refresh] rebuilding` churn (observed live: one appended line → immediate rebuild). Next.js escalates some of these rebuilds to full document reloads → the white-flash/skeleton/state-loss glitch on navigation and login. Secondary churn sources in watched root: worklog.md, tool-results/, download/, *.tsbuildinfo.
+- FIX 1 (root cause): package.json dev/start scripts now tee to /tmp/justice-dev.log and /tmp/justice-server.log (outside the watched root).
+- FIX 2 (belt & braces): next.config.ts webpack() dev watchOptions — merged extra ignores (*.log, worklog.md, tsconfig.tsbuildinfo, tool-results/, download/, scripts/, db/) INTO Next's default ignore RegExp (node_modules/.next/.git preserved), not replacing it. Plus `devIndicators: false` to hide the floating dev-tools pill / "Rendering…" badge that read as glitches in the live preview.
+- FIX 3 (UX hardening): src/app/page.tsx Shell — window.scrollTo(0,0) on every nav change (nav object identity) and when status flips to "authenticated" (login screen is taller than viewport; preserved offset opened the dashboard mid-page).
+- Verification E2E (fixed build, fresh session): login via demo-account click → Sign in → dashboard, scrollY=0, console clean; case → scroll 4000 → Dashboard → scrollY=0 and correct top-of-page render; 4 consecutive view switches → ZERO new `(Document)` loads (8→8); root-file writes (worklog/download/*.log probes) → ZERO Fast Refresh entries (watcher silent); logout→login cycle clean; React "state update on component that hasn't mounted" warning gone (was reload-race fallout).
+- tsc scoped clean for changed files (remaining repo errors are pre-existing examples//scripts/ scaffold, untouched); eslint clean for page.tsx + next.config.ts.
+
+Stage Summary:
+- The glitch class is eliminated at its root: no more watcher-driven full reloads during navigation/login, scroll always lands at top of a newly opened view, dev-indicator overlays hidden. Three files touched (package.json, next.config.ts, src/app/page.tsx); zero API/schema/service changes; dev log now at /tmp/justice-dev.log (note for future debugging sessions).

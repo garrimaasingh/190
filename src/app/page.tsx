@@ -70,6 +70,22 @@ function Shell() {
     if (status === "anonymous") setNav({ view: "dashboard" });
   }, [status]);
 
+  // SPA navigation keeps the window scroll position by default, so moving
+  // from a deep-scrolled view (e.g. a case page's graph section) to the
+  // dashboard landed the user mid-page with no way to tell where they were.
+  // Every navigation installs a fresh nav object — reset to the top on each.
+  React.useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [nav]);
+
+  // Auth transitions (sign-in, session restore) get the same treatment:
+  // the login screen is taller than the viewport (demo account list below
+  // the fold), so a preserved offset opened the dashboard scrolled away
+  // from the top.
+  React.useEffect(() => {
+    if (status === "authenticated") window.scrollTo(0, 0);
+  }, [status]);
+
   function navigate(view: ViewKey) {
     setNav({ view });
   }

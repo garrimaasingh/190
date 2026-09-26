@@ -1,0 +1,925 @@
+     1→"use client";
+     2→
+     3→import * as React from "react";
+     4→import {
+     5→  api,
+     6→  ApiClientError,
+     7→  type CaseDetail,
+     8→  type DepartmentRef,
+     9→  type IncomingTransferRow,
+    10→} from "@/lib/client/api";
+    11→import { useAuth } from "@/lib/client/store";
+    12→import { Button } from "@/components/ui/button";
+    13→import { Input } from "@/components/ui/input";
+    14→import { Label } from "@/components/ui/label";
+    15→import { Textarea } from "@/components/ui/textarea";
+    16→import { Badge } from "@/components/ui/badge";
+    17→import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+    18→import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+    19→import { StatusBadge } from "@/components/platform/common";
+    20→import { EmptyState, ErrorState, LoadingState, FieldError } from "@/components/platform/common";
+    21→import { DocumentsSection } from "@/components/platform/DocumentsSection";
+    22→import { EvidenceSection } from "@/components/platform/EvidenceSection";
+    23→import { CaseAIPanel } from "@/components/platform/CaseAIPanel";
+    24→import { CaseGraphSection } from "@/components/platform/CaseGraphSection";
+    25→import type { CaseIntegritySummary } from "@/lib/client/api";
+    26→import { PriorityBadge } from "@/components/platform/views/CasesView";
+    27→import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+    28→import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+    29→import {
+    30→  Gavel,
+    31→  Building2,
+    32→  Users,
+    33→  ArrowRightLeft,
+    34→  History,
+    35→  FileText,
+    36→  ShieldCheck,
+    37→  MapPin,
+    38→  CalendarDays,
+    39→  UserCircle2,
+    40→  Plus,
+    41→  UserMinus,
+    42→  Trash2,
+    43→} from "lucide-react";
+    44→
+    45→// ============================================================
+    46→// Case dashboard (spec §26/§41). Sections: Overview, Current
+    47→// Custody, Departments, Officers, Custody History, Timeline,
+    48→// Documents (Phase 3 empty state), Access. Every action button
+    49→// is gated by the server-computed viewer access.
+    50→// ============================================================
+    51→
+    52→const PARTICIPATION_LABELS: Record<string, string> = {
+    53→  ORIGINATING: "ORIGINATING",
+    54→  ACTIVE_CUSTODIAN: "ACTIVE CUSTODIAN",
+    55→  PARTICIPATING: "PARTICIPATING",
+    56→  CONSULTED: "CONSULTED",
+    57→  HISTORICAL: "HISTORICAL",
+    58→};
+    59→
+    60→function fmtDate(d: string | null | undefined): string {
+    61→  return d ? new Date(d).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "—";
+    62→}
+    63→
+    64→export function CaseDashboardView({ caseRef, onBack, onUploadDocument, onOpenDocument, onRegisterEvidence, onOpenEvidence }: { caseRef: string; onBack: () => void; onUploadDocument: () => void; onOpenDocument: (documentId: string, mode: "details" | "view") => void; onRegisterEvidence: () => void; onOpenEvidence: (evidenceId: string) => void }) {
+    65→  const { me, meta } = useAuth();
+    66→  const [detail, setDetail] = React.useState<CaseDetail | null>(null);
+    67→  const [loading, setLoading] = React.useState(true);
+    68→  const [error, setError] = React.useState<string | null>(null);
+    69→  const [actionError, setActionError] = React.useState<string | null>(null);
+    70→  // Phase 4 §62: informational integrity summary (documents/evidence/audit/chain).
+    71→  const [integrity, setIntegrity] = React.useState<CaseIntegritySummary | null>(null);
+    72→
+    73→  React.useEffect(() => {
+    74→    let alive = true;
+    75→    api
+    76→      .get<CaseIntegritySummary>(`/api/v1/cases/${caseRef}/integrity`)
+    77→      .then((s) => { if (alive) setIntegrity(s); })
+    78→      .catch(() => { /* informational only */ });
+    79→    return () => { alive = false; };
+    80→  }, [caseRef]);
+    81→
+    82→  // dialog state
+    83→  const [transferOpen, setTransferOpen] = React.useState(false);
+    84→  const [addOfficerOpen, setAddOfficerOpen] = React.useState(false);
+    85→  const [addDeptOpen, setAddDeptOpen] = React.useState(false);
+    86→  const [statusOpen, setStatusOpen] = React.useState(false);
+    87→  const [statusChoice, setStatusChoice] = React.useState("");
+    88→
+    89→  const load = React.useCallback(async () => {
+    90→    setLoading(true);
+    91→    setError(null);
+    92→    try {
+    93→      setDetail(await api.get<CaseDetail>(`/api/v1/cases/${encodeURIComponent(caseRef)}`));
+    94→    } catch (err) {
+    95→      setError(err instanceof ApiClientError ? err.message : "Failed to load the case.");
+    96→    } finally {
+    97→      setLoading(false);
+    98→    }
+    99→  }, [caseRef]);
+   100→
+   101→  React.useEffect(() => {
+   102→    load();
+   103→  }, [load]);
+   104→
+   105→  if (loading) return <LoadingState label="Loading case" rows={5} />;
+   106→  if (error) return <ErrorState message={error} onRetry={load} />;
+   107→  if (!detail) return <ErrorState message="Case not found." />;
+   108→
+   109→  const canManage = detail.viewer.manage && detail.mutable;
+   110→  const isAcceptedTransfer = (s: string) => s === "ACCEPTED";
+   111→  const pendingOutgoing = detail.transfers.find((t) => t.status === "REQUESTED");
+   112→
+   113→  return (
+   114→    <div className="space-y-6">
+   115→      <button onClick={onBack} className="text-sm text-muted-foreground underline-offset-4 hover:underline">
+   116→        ← Back to cases
+   117→      </button>
+   118→
+   119→      {/* ---------- CASE HEADER (spec §26/§41) ---------- */}
+   120→      <Card>
+   121→        <CardContent className="space-y-3 p-5">
+   122→          <div className="flex flex-wrap items-start justify-between gap-3">
+   123→            <div className="min-w-0 space-y-1">
+   124→              <p className="font-mono text-sm font-semibold text-muted-foreground">{detail.caseId}</p>
+   125→              <h1 className="text-xl font-semibold tracking-tight">{detail.title}</h1>
+   126→              {detail.caseNumber && (
+   127→                <p className="text-sm text-muted-foreground">Official case number: {detail.caseNumber}</p>
+   128→              )}
+   129→            </div>
+   130→            <div className="flex flex-wrap items-center gap-2">
+   131→              <StatusBadge status={detail.status} />
+   132→              <PriorityBadge priority={detail.priority} />
+   133→            </div>
+   134→          </div>
+   135→          <div className="grid gap-2 rounded-lg border bg-muted/30 p-3 text-sm sm:grid-cols-2">
+   136→            <p className="flex items-center gap-2">
+   137→              <Building2 aria-hidden size={15} className="text-muted-foreground" />
+   138→              <span className="text-muted-foreground">Current custodian:</span>
+   139→              <span className="font-medium">{detail.currentCustodianDepartment.name}</span>
+   140→            </p>
+   141→            <p className="flex items-center gap-2">
+   142→              <Gavel aria-hidden size={15} className="text-muted-foreground" />
+   143→              <span className="text-muted-foreground">Origin:</span>
+   144→              <span className="font-medium">{detail.originatingDepartment.name}</span>
+   145→            </p>
+   146→          </div>
+   147→        </CardContent>
+   148→      </Card>
+   149→
+   150→      {/* ---------- OVERVIEW ---------- */}
+   151→      <Card>
+   152→        <CardHeader className="pb-3">
+   153→          <CardTitle className="text-base">Overview</CardTitle>
+   154→        </CardHeader>
+   155→        <CardContent className="grid gap-x-8 gap-y-2 text-sm sm:grid-cols-2">
+   156→          <p><span className="text-muted-foreground">Case type:</span> {detail.caseType.replaceAll("_", " ")}{detail.caseCategory ? ` · ${detail.caseCategory}` : ""}</p>
+   157→          <p><span className="text-muted-foreground">Priority:</span> {detail.priority}</p>
+   158→          <p><span className="text-muted-foreground">Status:</span> {detail.status.replaceAll("_", " ")}</p>
+   159→          <p><span className="text-muted-foreground">Created by:</span> {detail.createdByOfficer.name} ({detail.createdByOfficer.officerId})</p>
+   160→          <p className="flex items-center gap-1.5"><MapPin aria-hidden size={14} className="text-muted-foreground" />{detail.geography.city}, {detail.geography.district}, {detail.geography.state}</p>
+   161→          <p className="flex items-center gap-1.5"><CalendarDays aria-hidden size={14} className="text-muted-foreground" />Created: {fmtDate(detail.createdAt)}</p>
+   162→          <p className="flex items-center gap-1.5"><CalendarDays aria-hidden size={14} className="text-muted-foreground" />Opened: {fmtDate(detail.openedAt)}</p>
+   163→          <p className="flex items-center gap-1.5"><CalendarDays aria-hidden size={14} className="text-muted-foreground" />Last updated: {fmtDate(detail.updatedAt)}</p>
+   164→          {detail.description && <p className="sm:col-span-2 rounded-md border bg-muted/30 p-3 text-sm">{detail.description}</p>}
+   165→        </CardContent>
+   166→      </Card>
+   167→
+   168→      {/* ---------- CURRENT CUSTODY ---------- */}
+   169→      <Card>
+   170→        <CardHeader className="flex-row items-center justify-between space-y-0 pb-3">
+   171→          <div>
+   172→            <CardTitle className="text-base">Current custody</CardTitle>
+   173→            <CardDescription>Exactly one department holds custody at any time.</CardDescription>
+   174→          </div>
+   175→          {detail.viewer.manage && detail.mutable && (
+   176→            <Button size="sm" className="gap-2" onClick={() => setTransferOpen(true)} disabled={!!pendingOutgoing}>
+   177→              <ArrowRightLeft size={15} aria-hidden /> Transfer Case
+   178→            </Button>
+   179→          )}
+   180→        </CardHeader>
+   181→        <CardContent className="space-y-3">
+   182→          <div className="flex flex-wrap items-center gap-3 rounded-lg border p-3">
+   183→            <ShieldCheck aria-hidden size={20} className="text-emerald-600" />
+   184→            <div className="min-w-0">
+   185→              <p className="font-medium">{detail.currentCustodianDepartment.name}</p>
+   186→              <p className="text-xs text-muted-foreground">
+   187→                {detail.currentCustodianDepartment.departmentType} · {detail.currentCustodianDepartment.departmentCode}
+   188→              </p>
+   189→            </div>
+   190→            <Badge variant="outline" className="ml-auto border-emerald-300 bg-emerald-100 text-emerald-900">CURRENT CUSTODIAN</Badge>
+   191→          </div>
+   192→          {detail.currentCustodianOfficer && (
+   193→            <p className="flex items-center gap-2 text-sm">
+   194→              <UserCircle2 aria-hidden size={15} className="text-muted-foreground" />
+   195→              <span className="text-muted-foreground">Responsible officer:</span> {detail.currentCustodianOfficer.name} ({detail.currentCustodianOfficer.officerId})
+   196→            </p>
+   197→          )}
+   198→          {pendingOutgoing && (
+   199→            <p className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm">
+   200→              A custody transfer to <strong>{pendingOutgoing.toDepartment.name}</strong> is pending acceptance
+   201→              ({pendingOutgoing.transferId}).
+   202→            </p>
+   203→          )}
+   204→        </CardContent>
+   205→      </Card>
+   206→
+   207→      {/* ---------- DEPARTMENTS (spec §27/§28) ---------- */}
+   208→      <Card>
+   209→        <CardHeader className="flex-row items-center justify-between space-y-0 pb-3">
+   210→          <div>
+   211→            <CardTitle className="text-base">Departments</CardTitle>
+   212→            <CardDescription>Origin, custody and participation are distinct concepts.</CardDescription>
+   213→          </div>
+   214→          {detail.viewer.manage && detail.mutable && (
+   215→            <>
+   216→              <Button size="sm" variant="outline" className="gap-2" onClick={() => setAddDeptOpen(true)}>
+   217→                <Plus size={15} aria-hidden /> Add Department
+   218→              </Button>
+   219→              <AddDepartmentDialog
+   220→                open={addDeptOpen}
+   221→                onOpenChange={setAddDeptOpen}
+   222→                detail={detail}
+   223→                onDone={() => { setAddDeptOpen(false); load(); }}
+   224→                onError={setActionError}
+   225→              />
+   226→            </>
+   227→          )}
+   228→        </CardHeader>
+   229→        <CardContent className="space-y-2">
+   230→          {detail.participants.length === 0 ? (
+   231→            <EmptyState title="No participating departments." />
+   232→          ) : (
+   233→            detail.participants.map((p) => {
+   234→              const label = p.isCustodian
+   235→                ? "ACTIVE CUSTODIAN"
+   236→                : p.isOrigin
+   237→                  ? "ORIGINATING"
+   238→                  : PARTICIPATION_LABELS[p.participationType] || p.participationType;
+   239→              return (
+   240→                <div key={p.id} className="flex flex-wrap items-center gap-3 rounded-lg border p-3">
+   241→                  <Building2 aria-hidden size={16} className="text-muted-foreground" />
+   242→                  <div className="min-w-0">
+   243→                    <p className="truncate text-sm font-medium">{p.department.name}</p>
+   244→                    <p className="text-xs text-muted-foreground">{p.department.departmentType} · joined {new Date(p.joinedAt).toLocaleDateString()}</p>
+   245→                  </div>
+   246→                  <div className="ml-auto flex items-center gap-2">
+   247→                    <Badge
+   248→                      variant="outline"
+   249→                      className={
+   250→                        p.isCustodian
+   251→                          ? "border-emerald-300 bg-emerald-100 text-emerald-900"
+   252→                          : p.isOrigin
+   253→                            ? "border-sky-300 bg-sky-100 text-sky-900"
+   254→                            : ""
+   255→                      }
+   256→                    >
+   257→                      {label}
+   258→                    </Badge>
+   259→                    {detail.viewer.manage && detail.mutable && !p.isOrigin && !p.isCustodian && (
+   260→                      <Button
+   261→                        size="icon"
+   262→                        variant="ghost"
+   263→                        aria-label={`Remove ${p.department.name} from case`}
+   264→                        onClick={async () => {
+   265→                          setActionError(null);
+   266→                          try {
+   267→                            await api.del(`/api/v1/cases/${encodeURIComponent(detail.caseId)}/departments/${p.department.id}`);
+   268→                            load();
+   269→                          } catch (err) {
+   270→                            setActionError(err instanceof ApiClientError ? err.message : "Removal failed.");
+   271→                          }
+   272→                        }}
+   273→                      >
+   274→                        <Trash2 size={14} aria-hidden />
+   275→                      </Button>
+   276→                    )}
+   277→                  </div>
+   278→                </div>
+   279→              );
+   280→            })
+   281→          )}
+   282→        </CardContent>
+   283→      </Card>
+   284→
+   285→      {/* ---------- OFFICERS (spec §29) ---------- */}
+   286→      <Card>
+   287→        <CardHeader className="flex-row items-center justify-between space-y-0 pb-3">
+   288→          <div>
+   289→            <CardTitle className="text-base">Officers</CardTitle>
+   290→            <CardDescription>Officers assigned to this case, by case role.</CardDescription>
+   291→          </div>
+   292→          {detail.viewer.manage && detail.mutable && (
+   293→            <Button size="sm" variant="outline" className="gap-2" onClick={() => setAddOfficerOpen(true)}>
+   294→              <Plus size={15} aria-hidden /> Assign Officer
+   295→            </Button>
+   296→          )}
+   297→        </CardHeader>
+   298→        <CardContent className="p-0">
+   299→          {detail.officers.filter((o) => o.status === "ACTIVE").length === 0 ? (
+   300→            <div className="p-4"><EmptyState title="No officers are assigned to this case." /></div>
+   301→          ) : (
+   302→            <div className="overflow-x-auto">
+   303→              <Table>
+   304→                <TableHeader>
+   305→                  <TableRow>
+   306→                    <TableHead>Officer ID</TableHead>
+   307→                    <TableHead>Name</TableHead>
+   308→                    <TableHead>Department</TableHead>
+   309→                    <TableHead>Case role</TableHead>
+   310→                    <TableHead>Assigned</TableHead>
+   311→                    {detail.viewer.manage && detail.mutable && <TableHead className="text-right">Actions</TableHead>}
+   312→                  </TableRow>
+   313→                </TableHeader>
+   314→                <TableBody>
+   315→                  {detail.officers.filter((o) => o.status === "ACTIVE").map((o) => (
+   316→                    <TableRow key={o.id}>
+   317→                      <TableCell className="whitespace-nowrap font-mono text-xs">{o.officer.officerId}</TableCell>
+   318→                      <TableCell className="font-medium">{o.officer.name}</TableCell>
+   319→                      <TableCell className="text-xs">{o.department.name}</TableCell>
+   320→                      <TableCell><Badge variant="secondary">{o.roleOnCase.replaceAll("_", " ")}</Badge></TableCell>
+   321→                      <TableCell className="whitespace-nowrap text-xs text-muted-foreground">{new Date(o.assignedAt).toLocaleDateString()}</TableCell>
+   322→                      {detail.viewer.manage && detail.mutable && (
+   323→                        <TableCell className="text-right">
+   324→                          <RoleChangeButton detail={detail} officerRecordId={o.id} currentRole={o.roleOnCase} onDone={load} onError={setActionError} />
+   325→                          <Button
+   326→                            size="icon"
+   327→                            variant="ghost"
+   328→                            aria-label={`Remove ${o.officer.name} from case`}
+   329→                            onClick={async () => {
+   330→                              setActionError(null);
+   331→                              try {
+   332→                                await api.del(`/api/v1/cases/${encodeURIComponent(detail.caseId)}/officers/${o.id}`);
+   333→                                load();
+   334→                              } catch (err) {
+   335→                                setActionError(err instanceof ApiClientError ? err.message : "Removal failed.");
+   336→                              }
+   337→                            }}
+   338→                          >
+   339→                            <UserMinus size={14} aria-hidden />
+   340→                          </Button>
+   341→                        </TableCell>
+   342→                      )}
+   343→                    </TableRow>
+   344→                  ))}
+   345→                </TableBody>
+   346→              </Table>
+   347→            </div>
+   348→          )}
+   349→        </CardContent>
+   350→      </Card>
+   351→
+   352→      {/* ---------- CUSTODY HISTORY (spec §23/§42) ---------- */}
+   353→      <Card>
+   354→        <CardHeader className="pb-3">
+   355→          <CardTitle className="flex items-center gap-2 text-base"><History aria-hidden size={17} /> Custody history</CardTitle>
+   356→          <CardDescription>Permanent chronological record. Completed transfers cannot be edited or deleted.</CardDescription>
+   357→        </CardHeader>
+   358→        <CardContent className="space-y-2">
+   359→          {detail.transfers.length === 0 ? (
+   360→            <EmptyState title="No custody transfers have been recorded." />
+   361→          ) : (
+   362→            detail.transfers.map((t) => (
+   363→              <div key={t.id} className="rounded-lg border p-3 text-sm">
+   364→                <div className="flex flex-wrap items-center gap-2">
+   365→                  <span className="font-mono text-xs">{t.transferId}</span>
+   366→                  <Badge
+   367→                    variant="outline"
+   368→                    className={
+   369→                      isAcceptedTransfer(t.status)
+   370→                        ? "border-emerald-300 bg-emerald-100 text-emerald-900"
+   371→                        : t.status === "REQUESTED"
+   372→                          ? "border-amber-300 bg-amber-100 text-amber-900"
+   373→                          : ""
+   374→                    }
+   375→                  >
+   376→                    {t.status}
+   377→                  </Badge>
+   378→                  <span className="text-xs text-muted-foreground">{fmtDate(t.requestedAt)}</span>
+   379→                </div>
+   380→                <p className="mt-1">
+   381→                  <span className="font-medium">{t.fromDepartment.name}</span> → <span className="font-medium">{t.toDepartment.name}</span>
+   382→                </p>
+   383→                <p className="text-xs text-muted-foreground">Reason: {t.reason}</p>
+   384→                <p className="text-xs text-muted-foreground">
+   385→                  Requested by {t.requestedByOfficer.name}
+   386→                  {t.acceptedByOfficer ? ` · Accepted by ${t.acceptedByOfficer.name}` : ""}
+   387→                  {t.acceptedAt ? ` · ${fmtDate(t.acceptedAt)}` : ""}
+   388→                </p>
+   389→              </div>
+   390→            ))
+   391→          )}
+   392→        </CardContent>
+   393→      </Card>
+   394→
+   395→      {/* ---------- TIMELINE (spec §24/§44) ---------- */}
+   396→      <Card>
+   397→        <CardHeader className="pb-3">
+   398→          <CardTitle className="text-base">Timeline</CardTitle>
+   399→          <CardDescription>Chronological case activity.</CardDescription>
+   400→        </CardHeader>
+   401→        <CardContent>
+   402→          {detail.timeline.length === 0 ? (
+   403→            <EmptyState title="No case events recorded yet." />
+   404→          ) : (
+   405→            <ol className="relative space-y-4 border-l pl-5" aria-label="Case timeline">
+   406→              {[...detail.timeline].reverse().map((e) => (
+   407→                <li key={e.id} className="relative">
+   408→                  <span aria-hidden className="absolute -left-[26px] top-1 h-2.5 w-2.5 rounded-full border-2 border-background bg-primary" />
+   409→                  <div className="flex flex-wrap items-center gap-2">
+   410→                    <Badge variant="secondary" className="font-mono text-[11px]">{e.eventType}</Badge>
+   411→                    <span className="text-xs text-muted-foreground">{fmtDate(e.createdAt)}</span>
+   412→                  </div>
+   413→                  {e.description && <p className="mt-0.5 text-sm">{e.description}</p>}
+   414→                  <p className="text-xs text-muted-foreground">
+   415→                    {e.actor ? `${e.actor.name} (${e.actor.officerId})` : e.actorIdentifier || "System"}
+   416→                    {e.department ? ` · ${e.department}` : ""}
+   417→                  </p>
+   418→                </li>
+   419→              ))}
+   420→            </ol>
+   421→          )}
+   422→        </CardContent>
+   423→      </Card>
+   424→
+   425→      {/* ---------- DOCUMENTS (Phase 3, spec §29/§64) ---------- */}
+   426→      <DocumentsSection
+   427→        caseRef={caseRef}
+   428→        meta={meta}
+   429→        onUpload={onUploadDocument}
+   430→        onOpenDocument={onOpenDocument}
+   431→      />
+   432→
+   433→      {/* ---------- EVIDENCE (Phase 4, spec §37) ---------- */}
+   434→      <EvidenceSection
+   435→        caseRef={caseRef}
+   436→        meta={meta}
+   437→        onRegister={onRegisterEvidence}
+   438→        onOpenEvidence={onOpenEvidence}
+   439→      />
+   440→
+   441→      {/* ---------- AI CASE INTELLIGENCE (Phase 5, spec §44) ---------- */}
+   442→      <CaseAIPanel
+   443→        caseRef={caseRef}
+   444→        canReview={!!me?.permissions?.includes("ai.review")}
+   445→        onOpenDocument={onOpenDocument}
+   446→ />
+   447→
+   448→      {/* ---------- CASE KNOWLEDGE GRAPH (Phase 6, spec §67) ---------- */}
+   449→      <CaseGraphSection caseRef={caseRef} canManage={canManage} onOpenDocument={onOpenDocument} onOpenEvidence={onOpenEvidence} />
+   450→
+   451→      {/* ---------- INTEGRITY SUMMARY (Phase 4, spec §62) ---------- */}
+   452→      {integrity && (
+   453→        <Card>
+   454→          <CardHeader className="pb-3">
+   455→            <CardTitle className="flex items-center gap-2 text-base">
+   456→              <ShieldCheck size={16} className={integrity.chain.valid ? "text-emerald-600" : "text-red-600"} aria-hidden /> Integrity
+   457→            </CardTitle>
+   458→            <CardDescription>Informational summary of this case&apos;s records and the audit chain state.</CardDescription>
+   459→          </CardHeader>
+   460→          <CardContent className="flex flex-wrap gap-x-8 gap-y-2 text-sm">
+   461→            <p><span className="text-muted-foreground">Documents:</span> <span className="font-medium">{integrity.documents}</span></p>
+   462→            <p><span className="text-muted-foreground">Evidence:</span> <span className="font-medium">{integrity.evidence}</span></p>
+   463→            <p>
+   464→              <span className="text-muted-foreground">Audit events:</span>{" "}
+   465→              <span className="font-medium">{integrity.auditEvents ?? "—"}</span>
+   466→              {integrity.auditEventsNote && <span className="block text-xs text-muted-foreground">{integrity.auditEventsNote}</span>}
+   467→            </p>
+   468→            <p><span className="text-muted-foreground">Custody transfers:</span> <span className="font-medium">{integrity.custodyTransfers}</span></p>
+   469→            <p>
+   470→              <span className="text-muted-foreground">Chain:</span>{" "}
+   471→              <Badge variant="outline" className={integrity.chain.valid ? "border-emerald-300 bg-emerald-50 text-emerald-900" : "border-red-300 bg-red-50 text-red-900"}>
+   472→                {integrity.chain.valid ? "VALID" : "INVALID"}
+   473→              </Badge>
+   474→            </p>
+   475→          </CardContent>
+   476→        </Card>
+   477→      )}
+   478→
+   479→      {/* ---------- ACCESS (spec §14) ---------- */}
+   480→      <Card>
+   481→        <CardHeader className="pb-3">
+   482→          <CardTitle className="text-base">Your access to this case</CardTitle>
+   483→        </CardHeader>
+   484→        <CardContent className="space-y-1 text-sm">
+   485→          <p>
+   486→            Access level: <Badge variant="outline">{detail.viewer.level.toUpperCase()}</Badge>
+   487→          </p>
+   488→          <ul className="list-disc space-y-0.5 pl-5 text-muted-foreground">
+   489→            {detail.viewer.reasons.map((r, i) => <li key={i}>{r}</li>)}
+   490→          </ul>
+   491→        </CardContent>
+   492→      </Card>
+   493→
+   494→      {actionError && <FieldError message={actionError} />}
+   495→
+   496→      {/* ---------- DIALOGS ---------- */}
+   497→      {transferOpen && (
+   498→        <TransferDialog
+   499→          detail={detail}
+   500→          onClose={() => setTransferOpen(false)}
+   501→          onDone={() => { setTransferOpen(false); load(); }}
+   502→        />
+   503→      )}
+   504→      {addOfficerOpen && (
+   505→        <AddOfficerDialog
+   506→          open={addOfficerOpen}
+   507→          onOpenChange={setAddOfficerOpen}
+   508→          detail={detail}
+   509→          onDone={() => { setAddOfficerOpen(false); load(); }}
+   510→        />
+   511→      )}
+   512→      {statusOpen && detail.viewer.manage && (
+   513→        <Dialog open={statusOpen} onOpenChange={setStatusOpen}>
+   514→          <DialogContent className="sm:max-w-md">
+   515→            <DialogHeader>
+   516→              <DialogTitle>Change case status</DialogTitle>
+   517→              <DialogDescription>
+   518→                Current status: {detail.status.replaceAll("_", " ")}. Only controlled transitions are permitted.
+   519→              </DialogDescription>
+   520→            </DialogHeader>
+   521→            <div className="space-y-1.5">
+   522→              <Label>New status</Label>
+   523→              <Select value={statusChoice} onValueChange={setStatusChoice}>
+   524→                <SelectTrigger aria-label="New status"><SelectValue placeholder="Select status" /></SelectTrigger>
+   525→                <SelectContent>
+   526→                  {detail.allowedTransitions.map((s) => (
+   527→                    <SelectItem key={s} value={s}>{s.replaceAll("_", " ")}</SelectItem>
+   528→                  ))}
+   529→                </SelectContent>
+   530→              </Select>
+   531→            </div>
+   532→            <DialogFooter>
+   533→              <Button variant="outline" onClick={() => setStatusOpen(false)}>Cancel</Button>
+   534→              <Button
+   535→                disabled={!statusChoice}
+   536→                onClick={async () => {
+   537→                  setActionError(null);
+   538→                  try {
+   539→                    await api.patch(`/api/v1/cases/${encodeURIComponent(detail.caseId)}/status`, { status: statusChoice });
+   540→                    setStatusOpen(false);
+   541→                    setStatusChoice("");
+   542→                    load();
+   543→                  } catch (err) {
+   544→                    setActionError(err instanceof ApiClientError ? err.message : "Status change failed.");
+   545→                  }
+   546→                }}
+   547→              >
+   548→                Change Status
+   549→              </Button>
+   550→            </DialogFooter>
+   551→          </DialogContent>
+   552→        </Dialog>
+   553→      )}
+   554→      {detail.viewer.manage && detail.mutable && detail.allowedTransitions.length > 0 && (
+   555→        <div className="flex justify-end">
+   556→          <Button variant="outline" className="gap-2" onClick={() => { setStatusChoice(""); setStatusOpen(true); }}>
+   557→            <History size={15} aria-hidden /> Change Status
+   558→          </Button>
+   559→        </div>
+   560→      )}
+   561→    </div>
+   562→  );
+   563→}
+   564→
+   565→// ---------------- role change (inline select) ----------------
+   566→function RoleChangeButton({
+   567→  detail,
+   568→  officerRecordId,
+   569→  currentRole,
+   570→  onDone,
+   571→  onError,
+   572→}: {
+   573→  detail: CaseDetail;
+   574→  officerRecordId: string;
+   575→  currentRole: string;
+   576→  onDone: () => void;
+   577→  onError: (m: string | null) => void;
+   578→}) {
+   579→  const { meta } = useAuth();
+   580→  const [role, setRole] = React.useState(currentRole);
+   581→  return (
+   582→    <Select
+   583→      value={role}
+   584→      onValueChange={async (v) => {
+   585→        setRole(v);
+   586→        onError(null);
+   587→        try {
+   588→          await api.patch(`/api/v1/cases/${encodeURIComponent(detail.caseId)}/officers/${officerRecordId}`, { roleOnCase: v });
+   589→          onDone();
+   590→        } catch (err) {
+   591→          onError(err instanceof ApiClientError ? err.message : "Role change failed.");
+   592→        }
+   593→      }}
+   594→    >
+   595→      <SelectTrigger className="h-8 w-44 text-xs" aria-label="Change case role"><SelectValue /></SelectTrigger>
+   596→      <SelectContent>
+   597→        {(meta?.caseOfficerRoles || []).map((r) => (
+   598→          <SelectItem key={r} value={r}>{r.replaceAll("_", " ")}</SelectItem>
+   599→        ))}
+   600→      </SelectContent>
+   601→    </Select>
+   602→  );
+   603→}
+   604→
+   605→// ---------------- transfer dialog (spec §42) ----------------
+   606→function TransferDialog({
+   607→  detail,
+   608→  onClose,
+   609→  onDone,
+   610→}: {
+   611→  detail: CaseDetail;
+   612→  onClose: () => void;
+   613→  onDone: () => void;
+   614→}) {
+   615→  const [departments, setDepartments] = React.useState<DepartmentRef[]>([]);
+   616→  const [officers, setOfficers] = React.useState<{ id: string; name: string; officerId: string; status: string }[]>([]);
+   617→  const [toDept, setToDept] = React.useState("");
+   618→  const [toOfficer, setToOfficer] = React.useState("");
+   619→  const [reason, setReason] = React.useState("");
+   620→  const [notes, setNotes] = React.useState("");
+   621→  const [confirming, setConfirming] = React.useState(false);
+   622→  const [error, setError] = React.useState<string | null>(null);
+   623→  const [busy, setBusy] = React.useState(false);
+   624→
+   625→  React.useEffect(() => {
+   626→    api
+   627→      .get<{ items: DepartmentRef[] }>("/api/v1/departments?page=1&pageSize=100&status=ACTIVE")
+   628→      .then((res) => setDepartments(res.items.filter((d) => d.id !== detail.currentCustodianDepartment.id)))
+   629→      .catch(() => setError("Failed to load departments."));
+   630→  }, [detail.currentCustodianDepartment.id]);
+   631→
+   632→  React.useEffect(() => {
+   633→    if (!toDept) return setOfficers([]);
+   634→    api
+   635→      .get<{ items: { id: string; name: string; officerId: string; status: string }[] }>(
+   636→        `/api/v1/cases/${encodeURIComponent(detail.caseId)}/eligible-officers?departmentId=${toDept}&purpose=transfer`
+   637→      )
+   638→      .then((res) => setOfficers(res.items))
+   639→      .catch(() => setOfficers([]));
+   640→  }, [toDept, detail.caseId]);
+   641→
+   642→  async function submit() {
+   643→    setError(null);
+   644→    setBusy(true);
+   645→    try {
+   646→      await api.post(`/api/v1/cases/${encodeURIComponent(detail.caseId)}/transfers`, {
+   647→        toDepartmentId: toDept,
+   648→        toOfficerId: toOfficer || undefined,
+   649→        reason: reason.trim(),
+   650→        transferNotes: notes.trim() || undefined,
+   651→      });
+   652→      onDone();
+   653→    } catch (err) {
+   654→      setError(err instanceof ApiClientError ? err.message : "Transfer request failed.");
+   655→      setConfirming(false);
+   656→    } finally {
+   657→      setBusy(false);
+   658→    }
+   659→  }
+   660→
+   661→  const valid = !!toDept && reason.trim().length >= 4;
+   662→
+   663→  return (
+   664→    <Dialog open onOpenChange={(o) => !o && onClose()}>
+   665→      <DialogContent className="sm:max-w-lg">
+   666→        <DialogHeader>
+   667→          <DialogTitle>Transfer Case</DialogTitle>
+   668→          <DialogDescription>
+   669→            Custody changes only after the destination department accepts. Case: <span className="font-mono">{detail.caseId}</span>
+   670→          </DialogDescription>
+   671→        </DialogHeader>
+   672→        {!confirming ? (
+   673→          <div className="space-y-4">
+   674→            <div className="rounded-md border bg-muted/30 p-3 text-sm">
+   675→              Current department: <span className="font-medium">{detail.currentCustodianDepartment.name}</span>
+   676→            </div>
+   677→            <div className="space-y-1.5">
+   678→              <Label>Transfer to *</Label>
+   679→              <Select value={toDept} onValueChange={(v) => { setToDept(v); setToOfficer(""); }}>
+   680→                <SelectTrigger aria-label="Destination department" aria-required="true"><SelectValue placeholder="Select department" /></SelectTrigger>
+   681→                <SelectContent>
+   682→                  {departments.map((d) => (
+   683→                    <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
+   684→                  ))}
+   685→                </SelectContent>
+   686→              </Select>
+   687→            </div>
+   688→            <div className="space-y-1.5">
+   689→              <Label>Receiving officer (optional)</Label>
+   690→              <Select value={toOfficer} onValueChange={setToOfficer} disabled={!toDept}>
+   691→                <SelectTrigger aria-label="Receiving officer"><SelectValue placeholder={toDept ? "Select officer" : "Select a department first"} /></SelectTrigger>
+   692→                <SelectContent>
+   693→                  {officers.filter((o) => o.status === "ACTIVE").map((o) => (
+   694→                    <SelectItem key={o.id} value={o.id}>{o.name} ({o.officerId})</SelectItem>
+   695→                  ))}
+   696→                </SelectContent>
+   697→              </Select>
+   698→            </div>
+   699→            <div className="space-y-1.5">
+   700→              <Label htmlFor="transfer-reason">Reason *</Label>
+   701→              <Textarea id="transfer-reason" value={reason} onChange={(e) => setReason(e.target.value)} rows={3} maxLength={1000} placeholder="Why is custody being transferred?" />
+   702→            </div>
+   703→            <div className="space-y-1.5">
+   704→              <Label htmlFor="transfer-notes">Additional notes</Label>
+   705→              <Textarea id="transfer-notes" value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} maxLength={2000} />
+   706→            </div>
+   707→            <FieldError message={error || undefined} />
+   708→            <DialogFooter>
+   709→              <Button variant="outline" onClick={onClose}>Cancel</Button>
+   710→              <Button disabled={!valid} onClick={() => setConfirming(true)}>Request Transfer</Button>
+   711→            </DialogFooter>
+   712→          </div>
+   713→        ) : (
+   714→          <div className="space-y-4">
+   715→            <div className="rounded-md border p-3 text-sm">
+   716→              <p><span className="text-muted-foreground">Current custodian:</span> {detail.currentCustodianDepartment.name}</p>
+   717→              <p><span className="text-muted-foreground">New custodian (pending acceptance):</span> {departments.find((d) => d.id === toDept)?.name}</p>
+   718→            </div>
+   719→            <p className="text-sm">
+   720→              The destination department will receive this request. Custody changes only when they accept it.
+   721→            </p>
+   722→            <FieldError message={error || undefined} />
+   723→            <DialogFooter>
+   724→              <Button variant="outline" onClick={() => setConfirming(false)} disabled={busy}>Back</Button>
+   725→              <Button onClick={submit} disabled={busy}>{busy ? "Submitting…" : "Submit Transfer Request"}</Button>
+   726→            </DialogFooter>
+   727→          </div>
+   728→        )}
+   729→      </DialogContent>
+   730→    </Dialog>
+   731→  );
+   732→}
+   733→
+   734→// ---------------- assign officer dialog (spec §29) ----------------
+   735→function AddOfficerDialog({
+   736→  open,
+   737→  onOpenChange,
+   738→  detail,
+   739→  onDone,
+   740→}: {
+   741→  open: boolean;
+   742→  onOpenChange: (o: boolean) => void;
+   743→  detail: CaseDetail;
+   744→  onDone: () => void;
+   745→}) {
+   746→  const { meta } = useAuth();
+   747→  const participantIds = new Set(detail.participants.map((p) => p.department.id));
+   748→  const [officers, setOfficers] = React.useState<{ id: string; name: string; officerId: string; status: string; department: { id: string; name: string } }[]>([]);
+   749→  const [officerChoice, setOfficerChoice] = React.useState("");
+   750→  const [role, setRole] = React.useState("");
+   751→  const [error, setError] = React.useState<string | null>(null);
+   752→  const [busy, setBusy] = React.useState(false);
+   753→
+   754→  React.useEffect(() => {
+   755→    if (!open) return;
+   756→    Promise.all(
+   757→      Array.from(participantIds).map((deptId) =>
+   758→        api
+   759→          .get<{ items: typeof officers }>(
+   760→            `/api/v1/cases/${encodeURIComponent(detail.caseId)}/eligible-officers?departmentId=${deptId}&purpose=assign`
+   761→          )
+   762→          .then((res) => res.items)
+   763→          .catch(() => [])
+   764→      )
+   765→    ).then((lists) => {
+   766→      const assigned = new Set(detail.officers.filter((o) => o.status === "ACTIVE").map((o) => o.officer.id));
+   767→      setOfficers(lists.flat().filter((o) => o.status === "ACTIVE" && !assigned.has(o.id)));
+   768→    });
+   769→  }, [open]);
+   770→
+   771→  async function submit() {
+   772→    setError(null);
+   773→    setBusy(true);
+   774→    try {
+   775→      await api.post(`/api/v1/cases/${encodeURIComponent(detail.caseId)}/officers`, {
+   776→        officerId: officerChoice,
+   777→        roleOnCase: role,
+   778→      });
+   779→      onDone();
+   780→    } catch (err) {
+   781→      setError(err instanceof ApiClientError ? err.message : "Assignment failed.");
+   782→    } finally {
+   783→      setBusy(false);
+   784→    }
+   785→  }
+   786→
+   787→  return (
+   788→    <Dialog open={open} onOpenChange={onOpenChange}>
+   789→      <DialogContent className="sm:max-w-md">
+   790→        <DialogHeader>
+   791→          <DialogTitle>Assign officer</DialogTitle>
+   792→          <DialogDescription>Only active officers of participating departments can be assigned.</DialogDescription>
+   793→        </DialogHeader>
+   794→        <div className="space-y-4">
+   795→          <div className="space-y-1.5">
+   796→            <Label>Officer *</Label>
+   797→            <Select value={officerChoice} onValueChange={setOfficerChoice}>
+   798→              <SelectTrigger aria-label="Officer" aria-required="true"><SelectValue placeholder="Select officer" /></SelectTrigger>
+   799→              <SelectContent>
+   800→                {officers.map((o) => (
+   801→                  <SelectItem key={o.id} value={o.id}>
+   802→                    {o.name} ({o.officerId}) — {o.department.name}
+   803→                  </SelectItem>
+   804→                ))}
+   805→              </SelectContent>
+   806→            </Select>
+   807→          </div>
+   808→          <div className="space-y-1.5">
+   809→            <Label>Case role *</Label>
+   810→            <Select value={role} onValueChange={setRole}>
+   811→              <SelectTrigger aria-label="Case role" aria-required="true"><SelectValue placeholder="Select role" /></SelectTrigger>
+   812→              <SelectContent>
+   813→                {(meta?.caseOfficerRoles || []).map((r) => (
+   814→                  <SelectItem key={r} value={r}>{r.replaceAll("_", " ")}</SelectItem>
+   815→                ))}
+   816→              </SelectContent>
+   817→            </Select>
+   818→          </div>
+   819→          <FieldError message={error || undefined} />
+   820→          <DialogFooter>
+   821→            <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+   822→            <Button disabled={!officerChoice || !role || busy} onClick={submit}>{busy ? "Assigning…" : "Assign"}</Button>
+   823→          </DialogFooter>
+   824→        </div>
+   825→      </DialogContent>
+   826→    </Dialog>
+   827→  );
+   828→}
+   829→
+   830→// ---------------- add department dialog (spec §12) ----------------
+   831→function AddDepartmentDialog({
+   832→  open,
+   833→  onOpenChange,
+   834→  detail,
+   835→  onDone,
+   836→  onError,
+   837→}: {
+   838→  open: boolean;
+   839→  onOpenChange: (o: boolean) => void;
+   840→  detail: CaseDetail;
+   841→  onDone: () => void;
+   842→  onError: (m: string | null) => void;
+   843→}) {
+   844→  const { meta } = useAuth();
+   845→  const [departments, setDepartments] = React.useState<DepartmentRef[]>([]);
+   846→  const [deptChoice, setDeptChoice] = React.useState("");
+   847→  const [pType, setPType] = React.useState("PARTICIPATING");
+   848→  const [error, setError] = React.useState<string | null>(null);
+   849→  const [busy, setBusy] = React.useState(false);
+   850→
+   851→  React.useEffect(() => {
+   852→    if (!open) return;
+   853→    api
+   854→      .get<{ items: DepartmentRef[] }>("/api/v1/departments?page=1&pageSize=100&status=ACTIVE")
+   855→      .then((res) => {
+   856→        const existing = new Set(detail.participants.map((p) => p.department.id));
+   857→        setDepartments(res.items.filter((d) => !existing.has(d.id)));
+   858→      })
+   859→      .catch(() => setError("Failed to load departments."));
+   860→  }, [open]);
+   861→
+   862→  async function submit() {
+   863→    setError(null);
+   864→    setBusy(true);
+   865→    try {
+   866→      await api.post(`/api/v1/cases/${encodeURIComponent(detail.caseId)}/departments`, {
+   867→        departmentId: deptChoice,
+   868→        participationType: pType,
+   869→      });
+   870→      onDone();
+   871→    } catch (err) {
+   872→      setError(err instanceof ApiClientError ? err.message : "Failed to add department.");
+   873→    } finally {
+   874→      setBusy(false);
+   875→    }
+   876→  }
+   877→
+   878→  return (
+   879→    <Dialog open={open} onOpenChange={onOpenChange}>
+   880→      <DialogContent className="sm:max-w-md">
+   881→        <DialogHeader>
+   882→          <DialogTitle className="flex items-center gap-2"><Users aria-hidden size={16} /> Add department</DialogTitle>
+   883→          <DialogDescription>
+   884→            Add a participating or consulted department. Custody changes only through the transfer workflow.
+   885→          </DialogDescription>
+   886→        </DialogHeader>
+   887→        <div className="space-y-4">
+   888→          <div className="space-y-1.5">
+   889→            <Label>Department *</Label>
+   890→            <Select value={deptChoice} onValueChange={setDeptChoice}>
+   891→              <SelectTrigger aria-label="Department" aria-required="true"><SelectValue placeholder="Select department" /></SelectTrigger>
+   892→              <SelectContent>
+   893→                {departments.map((d) => (
+   894→                  <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
+   895→                ))}
+   896→              </SelectContent>
+   897→            </Select>
+   898→          </div>
+   899→          <div className="space-y-1.5">
+   900→            <Label>Participation type</Label>
+   901→            <Select value={pType} onValueChange={setPType}>
+   902→              <SelectTrigger aria-label="Participation type"><SelectValue /></SelectTrigger>
+   903→              <SelectContent>
+   904→                {(meta?.participationTypes || ["PARTICIPATING", "CONSULTED"])
+   905→                  .filter((t) => t === "PARTICIPATING" || t === "CONSULTED")
+   906→                  .map((t) => (
+   907→                    <SelectItem key={t} value={t}>{t.replaceAll("_", " ")}</SelectItem>
+   908→                  ))}
+   909→              </SelectContent>
+   910→            </Select>
+   911→          </div>
+   912→          <FieldError message={error || undefined} />
+   913→          <DialogFooter>
+   914→            <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+   915→            <Button disabled={!deptChoice || busy} onClick={submit}>{busy ? "Adding…" : "Add Department"}</Button>
+   916→          </DialogFooter>
+   917→        </div>
+   918→      </DialogContent>
+   919→    </Dialog>
+   920→  );
+   921→}
+   922→
+   923→// Keep the incoming-transfer type referenced for future dashboard cards.
+   924→export type { IncomingTransferRow };
+   925→
