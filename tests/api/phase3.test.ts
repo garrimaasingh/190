@@ -9,6 +9,13 @@
  * service-level tests for the crypto/integrity/storage seams.
  */
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
+
+// Bun's default per-test timeout (5s) is too tight for cold route
+// compiles and AI-drain-coincident uploads — same convention as the
+// phase4/phase5 suites: every network test gets 60s.
+function t(name: string, fn: () => Promise<unknown> | unknown) {
+  return test(name, fn, 60000);
+}
 import { PrismaClient } from "@prisma/client";
 import { rmSync } from "fs";
 
@@ -153,7 +160,7 @@ beforeAll(async () => {
   await sys.get(`/api/v1/geography/districts/${indoreD.id}/cities`);
   const indoreC = sys.data().find((x: any) => x.code === "IND");
   geo = { stateId: mp.id, districtId: indoreD.id, cityId: indoreC.id };
-});
+}, 60000);
 
 afterAll(async () => {
   // Best-effort test cleanup (a full reset+reseed follows the suite anyway).
@@ -184,14 +191,14 @@ afterAll(async () => {
     } catch { /* best effort */ }
   }
   await db.$disconnect();
-});
+}, 60000);
 
 // ============================================================
 // A. Service-level seams (crypto, integrity, validation, scanner,
 //    storage path safety) — direct imports, no HTTP.
 // ============================================================
 describe("Phase 3 — service seams", () => {
-  test("AES-256-GCM encryption round-trips plaintext", async () => {
+  t("AES-256-GCM encryption round-trips plaintext", async () => {
     const { encryptDocument, decryptDocument } = await import("@/lib/documents/encryption");
     const plain = Buffer.from("classified content for round-trip ✅");
     const { blob, keyReference } = encryptDocument(plain);
@@ -201,7 +208,7 @@ describe("Phase 3 — service seams", () => {
     expect(decryptDocument(blob).equals(plain)).toBe(true);
   });
 
-  test("ciphertext is non-deterministic (fresh IV per encryption)", async () => {
+  t("ciphertext is non-deterministic (fresh IV per encryption)", async () => {
     const { encryptDocument } = await import("@/lib/documents/encryption");
     const plain = Buffer.from("same input");
     const a = encryptDocument(plain).blob;
@@ -209,7 +216,7 @@ describe("Phase 3 — service seams", () => {
     expect(a.equals(b)).toBe(false);
   });
 
-  test("tampered ciphertext fails authentication (fail closed)", async () => {
+  t("tampered ciphertext fails authentication (fail closed)", async () => {
     const { encryptDocument, decryptDocument } = await import("@/lib/documents/encryption");
     const { blob } = encryptDocument(Buffer.from("integrity matters"));
     const tampered = Buffer.from(blob);
@@ -217,7 +224,7 @@ describe("Phase 3 — service seams", () => {
     expect(() => decryptDocument(tampered)).toThrow();
   });
 
-  test("SHA-256 integrity: calculate + verify match/mismatch", async () => {
+  t("SHA-256 integrity: calculate + verify match/mismatch", async () => {
     const { calculateSha256, verifyHash } = await import("@/lib/documents/integrity");
     const content = Buffer.from("fingerprint me");
     const h = calculateSha256(content);
@@ -226,7 +233,7 @@ describe("Phase 3 — service seams", () => {
     expect(verifyHash(Buffer.from("modified"), h).match).toBe(false);
   });
 
-  test("magic bytes decide MIME, not the browser declaration", async () => {
+  t("magic bytes decide MIME, not the browser declaration", async () => {
     const { validateUploadedFile, detectMimeType } = await import("@/lib/documents/validation");
     expect(detectMimeType(PNG_1PX)).toBe("image/png");
     expect(detectMimeType(makePdf(["x"]))).toBe("application/pdf");
@@ -243,27 +250,27 @@ describe("Phase 3 — service seams", () => {
     expect(ok.mimeType).toBe("image/png");
   });
 
-  test("empty and binary-garbage files are rejected", async () => {
+  t("empty and binary-garbage files are rejected", async () => {
     const { validateUploadedFile } = await import("@/lib/documents/validation");
     expect(() => validateUploadedFile({ originalFilename: "a.pdf", declaredMimeType: "application/pdf", buffer: Buffer.alloc(0) })).toThrow(/empty/);
     expect(() => validateUploadedFile({ originalFilename: "a.pdf", declaredMimeType: "application/pdf", buffer: Buffer.from([0, 1, 2, 3, 255, 254]) })).toThrow();
   });
 
-  test("disallowed extensions rejected (spec §13 whitelist)", async () => {
+  t("disallowed extensions rejected (spec §13 whitelist)", async () => {
     const { validateUploadedFile } = await import("@/lib/documents/validation");
     expect(() =>
       validateUploadedFile({ originalFilename: "evil.exe", declaredMimeType: "application/octet-stream", buffer: Buffer.from("MZ—not really") })
     ).toThrow(/Unsupported file extension/);
   });
 
-  test("oversized files rejected at the configured limit", async () => {
+  t("oversized files rejected at the configured limit", async () => {
     const { validateUploadedFile } = await import("@/lib/documents/validation");
     const { DOCUMENT_MAX_BYTES } = await import("@/lib/constants");
     const big = Buffer.alloc(DOCUMENT_MAX_BYTES + 1, 0x41);
     expect(() => validateUploadedFile({ originalFilename: "big.txt", declaredMimeType: "text/plain", buffer: big })).toThrow(/maximum allowed size/);
   });
 
-  test("original filename is sanitized; traversal components never survive", async () => {
+  t("original filename is sanitized; traversal components never survive", async () => {
     const { sanitizeOriginalFilename } = await import("@/lib/documents/validation");
     expect(sanitizeOriginalFilename("../../etc/passwd")).toBe("passwd");
     expect(sanitizeOriginalFilename("..\\..\\windows\\system.ini")).toBe("system.ini");
@@ -271,7 +278,7 @@ describe("Phase 3 — service seams", () => {
     expect(sanitizeOriginalFilename("a/b/c/../../file.pdf")).toBe("file.pdf");
   });
 
-  test("security scanner stub: EICAR + MZ malicious, PDF scripts suspicious, clean safe", async () => {
+  t("security scanner stub: EICAR + MZ malicious, PDF scripts suspicious, clean safe", async () => {
     const { scanFileContent } = await import("@/lib/documents/scanner");
     expect(scanFileContent(Buffer.from(EICAR), "text/plain").verdict).toBe("MALICIOUS");
     expect(scanFileContent(Buffer.from("MZ" + "A".repeat(100)), "application/pdf").verdict).toBe("MALICIOUS");
@@ -280,7 +287,7 @@ describe("Phase 3 — service seams", () => {
     expect(scanFileContent(makePdf(["clean"]), "application/pdf").verdict).toBe("SAFE");
   });
 
-  test("storage keys are opaque and traversal-proof", async () => {
+  t("storage keys are opaque and traversal-proof", async () => {
     const { DocumentStorage } = await import("@/lib/documents/storage");
     await expect(DocumentStorage.get_object("../../etc/passwd")).rejects.toThrow();
     await expect(DocumentStorage.get_object("cases/x/documents/..%2f..%2f/object")).rejects.toThrow();
@@ -293,7 +300,7 @@ describe("Phase 3 — service seams", () => {
 // B. Upload & validation (API) — spec §75
 // ============================================================
 describe("Phase 3 — upload & validation (API)", () => {
-  test("valid PDF upload commits with DOC id, hash, encryption metadata", async () => {
+  t("valid PDF upload commits with DOC id, hash, encryption metadata", async () => {
     const res = await uploadDoc(officerPolice, CASE1, F, {
       title: "Phase 3 Valid PDF",
       documentType: "INVESTIGATION_REPORT",
@@ -314,7 +321,7 @@ describe("Phase 3 — upload & validation (API)", () => {
     createdDocPublicIds.push(doc.id);
   });
 
-  test("valid PNG and TXT uploads commit (server-detected MIME)", async () => {
+  t("valid PNG and TXT uploads commit (server-detected MIME)", async () => {
     const png = await uploadDoc(officerPolice, CASE1, { name: "scan.png", type: "image/png", bytes: PNG_1PX }, {
       title: "Phase 3 PNG Exhibit", documentType: "EVIDENCE_REPORT", classification: "INTERNAL",
     });
@@ -330,7 +337,7 @@ describe("Phase 3 — upload & validation (API)", () => {
     createdDocPublicIds.push(txt.data().document.id);
   });
 
-  test("disallowed extension (.exe) → 415", async () => {
+  t("disallowed extension (.exe) → 415", async () => {
     const res = await uploadDoc(officerPolice, CASE1, { name: "tool.exe", type: "application/octet-stream", bytes: Buffer.from("MZ binary") }, {
       title: "Should Not Commit", documentType: "OTHER", classification: "INTERNAL",
     });
@@ -338,21 +345,21 @@ describe("Phase 3 — upload & validation (API)", () => {
     expect(officerPolice.code()).toBe("UNSUPPORTED_FILE_TYPE");
   });
 
-  test("wrong magic bytes (text posing as PNG) → 415", async () => {
+  t("wrong magic bytes (text posing as PNG) → 415", async () => {
     const res = await uploadDoc(officerPolice, CASE1, { name: "fake.png", type: "image/png", bytes: Buffer.from("definitely not a png") }, {
       title: "Fake PNG", documentType: "OTHER", classification: "INTERNAL",
     });
     expect(res.status).toBe(415);
   });
 
-  test("declared MIME contradicting content → 415", async () => {
+  t("declared MIME contradicting content → 415", async () => {
     const res = await uploadDoc(officerPolice, CASE1, { name: "report.txt", type: "application/pdf", bytes: Buffer.from("plain text only") }, {
       title: "Declared Mismatch", documentType: "OTHER", classification: "INTERNAL",
     });
     expect(res.status).toBe(415);
   });
 
-  test("oversized file → 413 FILE_TOO_LARGE", async () => {
+  t("oversized file → 413 FILE_TOO_LARGE", async () => {
     const { DOCUMENT_MAX_BYTES } = await import("@/lib/constants");
     const big = Buffer.alloc(DOCUMENT_MAX_BYTES + 10, 0x41);
     const res = await uploadDoc(officerPolice, CASE1, { name: "big.txt", type: "text/plain", bytes: big }, {
@@ -362,7 +369,7 @@ describe("Phase 3 — upload & validation (API)", () => {
     expect(officerPolice.code()).toBe("FILE_TOO_LARGE");
   });
 
-  test("empty file → 422 and no document record", async () => {
+  t("empty file → 422 and no document record", async () => {
     const before = (await officerPolice.get(`/api/v1/cases/${CASE1}/documents`)).data().total;
     const res = await uploadDoc(officerPolice, CASE1, { name: "empty.pdf", type: "application/pdf", bytes: Buffer.alloc(0) }, {
       title: "Empty", documentType: "OTHER", classification: "INTERNAL",
@@ -372,7 +379,7 @@ describe("Phase 3 — upload & validation (API)", () => {
     expect(after).toBe(before);
   });
 
-  test("malicious filename is neutralized (path traversal, separators, null byte)", async () => {
+  t("malicious filename is neutralized (path traversal, separators, null byte)", async () => {
     const res = await uploadDoc(officerPolice, CASE1, { name: "../../evil\u0000.pdf", type: "application/pdf", bytes: F.bytes }, {
       title: "Traversal Name", documentType: "OTHER", classification: "INTERNAL",
     });
@@ -383,7 +390,7 @@ describe("Phase 3 — upload & validation (API)", () => {
     createdDocPublicIds.push(res.data().document.id);
   });
 
-  test("EICAR sample → 422 FILE_SCAN_FAILED and NO committed record", async () => {
+  t("EICAR sample → 422 FILE_SCAN_FAILED and NO committed record", async () => {
     const before = (await officerPolice.get(`/api/v1/cases/${CASE1}/documents`)).data().total;
     const res = await uploadDoc(officerPolice, CASE1, { name: "eicar.txt", type: "text/plain", bytes: Buffer.from(EICAR) }, {
       title: "EICAR Test", documentType: "OTHER", classification: "INTERNAL",
@@ -394,7 +401,7 @@ describe("Phase 3 — upload & validation (API)", () => {
     expect(after).toBe(before);
   });
 
-  test("suspicious PDF (embedded script) → quarantined, invisible to officers, visible to SYSTEM_ADMIN", async () => {
+  t("suspicious PDF (embedded script) → quarantined, invisible to officers, visible to SYSTEM_ADMIN", async () => {
     const sneaky = Buffer.concat([makePdf(["x"]), Buffer.from("/OpenAction << /S /JavaScript >>")]);
     const res = await uploadDoc(officerPolice, CASE1, { name: "sneaky.pdf", type: "application/pdf", bytes: sneaky }, {
       title: "Suspicious PDF", documentType: "OTHER", classification: "INTERNAL",
@@ -412,7 +419,7 @@ describe("Phase 3 — upload & validation (API)", () => {
     expect(sysList.data().items.some((d: any) => d.id === quarantinedId)).toBe(true);
   });
 
-  test("HIGHLY_RESTRICTED assignment denied for ordinary officers (spec §7)", async () => {
+  t("HIGHLY_RESTRICTED assignment denied for ordinary officers (spec §7)", async () => {
     const res = await uploadDoc(officerPolice, CASE1, F, {
       title: "Officer Cannot Mint Top Classification", documentType: "OTHER", classification: "HIGHLY_RESTRICTED",
     });
@@ -420,7 +427,7 @@ describe("Phase 3 — upload & validation (API)", () => {
     expect(officerPolice.msg()).toMatch(/classification/i);
   });
 
-  test("upload authorization: auditor (no permission), unrelated dept, unauthenticated", async () => {
+  t("upload authorization: auditor (no permission), unrelated dept, unauthenticated", async () => {
     const a = await uploadDoc(auditor, CASE1, F, { title: "Auditor Upload", documentType: "OTHER", classification: "INTERNAL" });
     expect(a.status).toBe(403);
 
@@ -432,7 +439,7 @@ describe("Phase 3 — upload & validation (API)", () => {
     expect(anonRes.status).toBe(401);
   });
 
-  test("upload to a CLOSED case → 403 (spec §57); viewing stays allowed", async () => {
+  t("upload to a CLOSED case → 403 (spec §57); viewing stays allowed", async () => {
     // CASE-MP-IND-2026-000004 is the seeded CLOSED case (police custodian).
     const res = await uploadDoc(adminPolice, "CASE-MP-IND-2026-000004", F, {
       title: "Closed Case Upload", documentType: "OTHER", classification: "INTERNAL",
@@ -441,7 +448,7 @@ describe("Phase 3 — upload & validation (API)", () => {
     expect(adminPolice.msg()).toMatch(/CLOSED|does not accept/i);
   });
 
-  test("mass-assignment protection: client cannot set sha256/storageKey/status (spec §72)", async () => {
+  t("mass-assignment protection: client cannot set sha256/storageKey/status (spec §72)", async () => {
     const form = new FormData();
     form.append("file", new Blob([new Uint8Array(F.bytes)], { type: "application/pdf" }), "mass.pdf");
     form.append("title", "Mass Assignment Attempt");
@@ -462,7 +469,7 @@ describe("Phase 3 — upload & validation (API)", () => {
     createdDocPublicIds.push(doc.id);
   });
 
-  test("idempotency: retried clientRequestId does not double-commit (spec §68)", async () => {
+  t("idempotency: retried clientRequestId does not double-commit (spec §68)", async () => {
     const clientRequestId = `idem-${stamp}`;
     const first = await uploadDoc(officerPolice, CASE1, F, {
       title: "Idempotent Upload", documentType: "OTHER", classification: "INTERNAL", clientRequestId,
@@ -477,7 +484,7 @@ describe("Phase 3 — upload & validation (API)", () => {
     createdDocPublicIds.push(first.data().document.id);
   });
 
-  test("duplicate content in same case → warning, both records preserved (spec §67)", async () => {
+  t("duplicate content in same case → warning, both records preserved (spec §67)", async () => {
     const first = await uploadDoc(officerPolice, CASE1, F, {
       title: "Duplicate Check A", documentType: "OTHER", classification: "INTERNAL", clientRequestId: `dup-a-${stamp}`,
     });
@@ -502,7 +509,7 @@ describe("Phase 3 — immutability of committed documents", () => {
   let immDocId: string; // dedicated committed doc for this suite (run-order independent)
   let originalSnapshot: any;
 
-  test("upload a dedicated document and capture its state", async () => {
+  t("upload a dedicated document and capture its state", async () => {
     const res = await uploadDoc(officerPolice, CASE1, F, {
       title: "Immutability Specimen", documentType: "FIR", classification: "RESTRICTED",
       clientRequestId: `immut-${stamp}`,
@@ -514,7 +521,7 @@ describe("Phase 3 — immutability of committed documents", () => {
     expect(originalSnapshot.document.status).toBe("COMMITTED");
   });
 
-  test("PUT/PATCH/DELETE on a committed document are impossible (no mutation surface)", async () => {
+  t("PUT/PATCH/DELETE on a committed document are impossible (no mutation surface)", async () => {
     const put = await officerPolice.put(`/api/v1/cases/${CASE1}/documents/${immDocId}`, { title: "hacked" });
     expect([405, 404]).toContain(put.status);
     const patch = await officerPolice.patch(`/api/v1/cases/${CASE1}/documents/${immDocId}`, { sha256Hash: "0".repeat(64) });
@@ -526,7 +533,7 @@ describe("Phase 3 — immutability of committed documents", () => {
     expect([405, 404]).toContain(putFile.status);
   });
 
-  test("creating a correction leaves the original byte-for-byte unchanged", async () => {
+  t("creating a correction leaves the original byte-for-byte unchanged", async () => {
     const res = await uploadRelated(officerPolice, CASE1, immDocId, "correction", F, {
       title: "Correction to Specimen",
       documentType: "FIR",
@@ -547,7 +554,7 @@ describe("Phase 3 — immutability of committed documents", () => {
     expect(after.data().relationships.incoming.some((r: any) => r.relationshipType === "CORRECTION")).toBe(true);
   });
 
-  test("supplement and replacement workflows (spec §37-§39)", async () => {
+  t("supplement and replacement workflows (spec §37-§39)", async () => {
     // supplement
     const sup = await uploadRelated(officerPolice, CASE1, immDocId, "supplement", F, {
       documentType: "FIR", classification: "INTERNAL", clientRequestId: `sup-${stamp}`,
@@ -573,7 +580,7 @@ describe("Phase 3 — immutability of committed documents", () => {
     expect(dl.status).toBe(200);
   });
 
-  test("replacement of an already-superseded document → 409", async () => {
+  t("replacement of an already-superseded document → 409", async () => {
     const res = await uploadRelated(officerPolice, CASE1, immDocId, "replacement", F, {
       documentType: "FIR", classification: "RESTRICTED", clientRequestId: `rep2-${stamp}`,
     });
@@ -581,7 +588,7 @@ describe("Phase 3 — immutability of committed documents", () => {
     expect(officerPolice.code()).toBe("INVALID_DOCUMENT_STATE");
   });
 
-  test("controlled integrity verification: SYSTEM_ADMIN ok, others denied (spec §21)", async () => {
+  t("controlled integrity verification: SYSTEM_ADMIN ok, others denied (spec §21)", async () => {
     const sysRes = await sys.post(`/api/v1/cases/${CASE1}/documents/${immDocId}/verify`);
     expect(sysRes.status).toBe(200);
     expect(sysRes.data().match).toBe(true);
@@ -598,7 +605,7 @@ describe("Phase 3 — immutability of committed documents", () => {
 //    participating (unassigned), auditor, unrelated dept.
 // ============================================================
 describe("Phase 3 — access control matrix", () => {
-  test("assigned custodian officer: full visibility incl. CONFIDENTIAL + RESTRICTED", async () => {
+  t("assigned custodian officer: full visibility incl. CONFIDENTIAL + RESTRICTED", async () => {
     const res = await officerPolice.get(`/api/v1/cases/${CASE1}/documents`);
     expect(res.status).toBe(200);
     expect(res.data().canUpload).toBe(true);
@@ -608,13 +615,13 @@ describe("Phase 3 — access control matrix", () => {
     expect(restr.data().total).toBeGreaterThanOrEqual(1);
   });
 
-  test("custodian department admin: manage authority", async () => {
+  t("custodian department admin: manage authority", async () => {
     const res = await adminPolice.get(`/api/v1/cases/${CASE1}/documents`);
     expect(res.status).toBe(200);
     expect(res.data().canUpload).toBe(true);
   });
 
-  test("participating department (unassigned): INTERNAL-only visibility, no upload hint", async () => {
+  t("participating department (unassigned): INTERNAL-only visibility, no upload hint", async () => {
     const res = await adminFsl.get(`/api/v1/cases/${CASE1}/documents`);
     expect(res.status).toBe(200); // case-level view via participation
     expect(res.data().canUpload).toBe(false);
@@ -626,7 +633,7 @@ describe("Phase 3 — access control matrix", () => {
     expect(conf.data().total).toBe(0); // never receives metadata for unauthorized documents
   });
 
-  test("classification denies direct access even with case access (spec §24)", async () => {
+  t("classification denies direct access even with case access (spec §24)", async () => {
     const res = await adminFsl.get(`/api/v1/cases/${CASE1}/documents/${DOC1}`); // RESTRICTED
     expect(res.status).toBe(403);
     expect(adminFsl.code()).toBe("DOCUMENT_ACCESS_DENIED");
@@ -636,7 +643,7 @@ describe("Phase 3 — access control matrix", () => {
     expect(dl.status).toBe(403);
   });
 
-  test("auditor: read-only up to RESTRICTED, no upload", async () => {
+  t("auditor: read-only up to RESTRICTED, no upload", async () => {
     const res = await auditor.get(`/api/v1/cases/${CASE1}/documents`);
     expect(res.status).toBe(200);
     expect(res.data().canUpload).toBe(false);
@@ -647,7 +654,7 @@ describe("Phase 3 — access control matrix", () => {
     expect(up.status).toBe(403);
   });
 
-  test("unrelated department: nothing exists for them (spec §64)", async () => {
+  t("unrelated department: nothing exists for them (spec §64)", async () => {
     const list = await adminBhopal.get(`/api/v1/cases/${CASE1}/documents`);
     expect(list.status).toBe(403);
     const view = await adminBhopal.get(`/api/v1/cases/${CASE1}/documents/${DOC1}`);
@@ -656,14 +663,14 @@ describe("Phase 3 — access control matrix", () => {
     expect(dl.status).toBe(403);
   });
 
-  test("unauthenticated: 401 across the document surface", async () => {
+  t("unauthenticated: 401 across the document surface", async () => {
     expect((await anon.get(`/api/v1/cases/${CASE1}/documents`)).status).toBe(401);
     expect((await anon.get(`/api/v1/cases/${CASE1}/documents/${DOC1}`)).status).toBe(401);
     expect((await anon.get(`/api/v1/cases/${CASE1}/documents/${DOC1}/view`)).status).toBe(401);
     expect((await anon.get(`/api/v1/cases/${CASE1}/documents/${DOC1}/download`)).status).toBe(401);
   });
 
-  test("nonexistent document and wrong case/document combination → 404 (spec §78)", async () => {
+  t("nonexistent document and wrong case/document combination → 404 (spec §78)", async () => {
     const missing = await officerPolice.get(`/api/v1/cases/${CASE1}/documents/DOC-MP-IND-2026-999999`);
     expect(missing.status).toBe(404);
     expect(officerPolice.code()).toBe("DOCUMENT_NOT_FOUND");
@@ -681,7 +688,7 @@ describe("Phase 3 — custody transfer changes authority, not history", () => {
   let uploadedDocId: string;
   let uploadedInternalDocId: string;
 
-  test("setup: police creates case, uploads (RESTRICTED + INTERNAL), requests transfer to FSL, FSL accepts", async () => {
+  t("setup: police creates case, uploads (RESTRICTED + INTERNAL), requests transfer to FSL, FSL accepts", async () => {
     const created = await createTestCase(adminPolice, { title: `Custody Transfer Doc Case ${stamp}` });
     expect(created.status).toBe(201);
     caseRef = adminPolice.data().caseId;
@@ -709,7 +716,7 @@ describe("Phase 3 — custody transfer changes authority, not history", () => {
     expect(accept.status).toBe(200);
   });
 
-  test("new custodian (FSL) gains document-management authority", async () => {
+  t("new custodian (FSL) gains document-management authority", async () => {
     const res = await uploadDoc(adminFsl, caseRef, F, {
       title: "FSL Findings After Custody", documentType: "FORENSIC_REPORT", classification: "RESTRICTED",
       clientRequestId: `fsl-post-transfer-${stamp}`,
@@ -718,7 +725,7 @@ describe("Phase 3 — custody transfer changes authority, not history", () => {
     createdDocPublicIds.push(res.data().document.id);
   });
 
-  test("previous custodian loses upload authority but keeps historical read (spec §55)", async () => {
+  t("previous custodian loses upload authority but keeps historical read (spec §55)", async () => {
     const upAttempt = await uploadDoc(adminPolice, caseRef, F, {
       title: "Police Should Not Upload", documentType: "OTHER", classification: "INTERNAL",
     });
@@ -743,7 +750,7 @@ describe("Phase 3 — custody transfer changes authority, not history", () => {
     expect(adminPolice.code()).toBe("DOCUMENT_ACCESS_DENIED");
   });
 
-  test("uploaded-by identity and document remain immutable across custody change", async () => {
+  t("uploaded-by identity and document remain immutable across custody change", async () => {
     const res = await adminFsl.get(`/api/v1/cases/${caseRef}/documents/${uploadedDocId}`);
     expect(res.status).toBe(200);
     expect(res.data().document.uploadedBy.officerId).toBe("OFF-MP-IND-00001"); // original uploader preserved
@@ -755,7 +762,7 @@ describe("Phase 3 — custody transfer changes authority, not history", () => {
 // F. Relationships (spec §79)
 // ============================================================
 describe("Phase 3 — relationship rules", () => {
-  test("RELATED link between two existing documents", async () => {
+  t("RELATED link between two existing documents", async () => {
     const res = await officerPolice.post(`/api/v1/cases/${CASE1}/documents/${DOC1}/relationships`, {
       targetDocumentId: "DOC-MP-IND-2026-000002",
       relationshipType: "RELATED",
@@ -772,7 +779,7 @@ describe("Phase 3 — relationship rules", () => {
     ).toBe(true);
   });
 
-  test("self relationship → 422", async () => {
+  t("self relationship → 422", async () => {
     const res = await officerPolice.post(`/api/v1/cases/${CASE1}/documents/${DOC1}/relationships`, {
       targetDocumentId: DOC1, relationshipType: "RELATED",
     });
@@ -780,21 +787,21 @@ describe("Phase 3 — relationship rules", () => {
     expect(officerPolice.code()).toBe("INVALID_RELATIONSHIP");
   });
 
-  test("duplicate relationship → 409", async () => {
+  t("duplicate relationship → 409", async () => {
     const res = await officerPolice.post(`/api/v1/cases/${CASE1}/documents/${DOC1}/relationships`, {
       targetDocumentId: "DOC-MP-IND-2026-000002", relationshipType: "RELATED",
     });
     expect(res.status).toBe(409);
   });
 
-  test("nonexistent target → 404", async () => {
+  t("nonexistent target → 404", async () => {
     const res = await officerPolice.post(`/api/v1/cases/${CASE1}/documents/${DOC1}/relationships`, {
       targetDocumentId: "DOC-MP-IND-2026-999999", relationshipType: "REFERENCE",
     });
     expect(res.status).toBe(404);
   });
 
-  test("cross-case relationship rejected (target not in this case)", async () => {
+  t("cross-case relationship rejected (target not in this case)", async () => {
     // create a doc on a fresh case, then try to link it from case 1
     const other = await createTestCase(adminPolice, { title: `Cross-case Link ${stamp}` });
     expect(other.status).toBe(201);
@@ -809,14 +816,14 @@ describe("Phase 3 — relationship rules", () => {
     expect(res.status).toBe(404); // not found in case 1 — cross-case linking impossible
   });
 
-  test("SUPPLEMENT/REPLACEMENT types rejected through the generic link endpoint", async () => {
+  t("SUPPLEMENT/REPLACEMENT types rejected through the generic link endpoint", async () => {
     const res = await officerPolice.post(`/api/v1/cases/${CASE1}/documents/${DOC1}/relationships`, {
       targetDocumentId: "DOC-MP-IND-2026-000002", relationshipType: "SUPPLEMENT",
     });
     expect(res.status).toBe(422); // zod enum violation
   });
 
-  test("relationship creation requires custodian authority (spec §77)", async () => {
+  t("relationship creation requires custodian authority (spec §77)", async () => {
     const res = await adminFsl.post(`/api/v1/cases/${CASE1}/documents/DOC-MP-IND-2026-000004/relationships`, {
       targetDocumentId: DOC1, relationshipType: "REFERENCE",
     });
@@ -827,7 +834,7 @@ describe("Phase 3 — relationship rules", () => {
     expect(aud.status).toBe(403);
   });
 
-  test("GET relationships returns both directions with counterpart summaries", async () => {
+  t("GET relationships returns both directions with counterpart summaries", async () => {
     const res = await officerPolice.get(`/api/v1/cases/${CASE1}/documents/${DOC1}/relationships`);
     expect(res.status).toBe(200);
     const rels = officerPolice.data().relationships;
@@ -841,7 +848,7 @@ describe("Phase 3 — relationship rules", () => {
 // G. Events, search & download audit (spec §32/§33/§41/§51/§78)
 // ============================================================
 describe("Phase 3 — events, audit and search", () => {
-  test("view + download generate the spec event sequence", async () => {
+  t("view + download generate the spec event sequence", async () => {
     await officerPolice.get(`/api/v1/cases/${CASE1}/documents/${DOC1}/view`);
     await officerPolice.get(`/api/v1/cases/${CASE1}/documents/${DOC1}/download`);
     const res = await officerPolice.get(`/api/v1/cases/${CASE1}/documents/${DOC1}/events`);
@@ -853,14 +860,14 @@ describe("Phase 3 — events, audit and search", () => {
     expect(types).toContain("DOCUMENT_DOWNLOAD_COMPLETED");
   });
 
-  test("denied access is audited as DOCUMENT_ACCESS_DENIED", async () => {
+  t("denied access is audited as DOCUMENT_ACCESS_DENIED", async () => {
     await adminFsl.get(`/api/v1/cases/${CASE1}/documents/${DOC1}`); // denied (classification)
     const sysRes = await sys.get(`/api/v1/cases/${CASE1}/documents/${DOC1}/events`);
     const types = sysRes.data().events.map((e: any) => e.eventType);
     expect(types).toContain("DOCUMENT_ACCESS_DENIED");
   });
 
-  test("events never contain document content or keys", async () => {
+  t("events never contain document content or keys", async () => {
     const res = await sys.get(`/api/v1/cases/${CASE1}/documents/${DOC1}/events`);
     const raw = JSON.stringify(sys.lastBody);
     expect(raw).not.toContain("%PDF");
@@ -869,14 +876,14 @@ describe("Phase 3 — events, audit and search", () => {
     expect(raw.toLowerCase()).not.toContain("aeskey");
   });
 
-  test("document events flow into the case timeline", async () => {
+  t("document events flow into the case timeline", async () => {
     const res = await officerPolice.get(`/api/v1/cases/${CASE1}/timeline`);
     expect(res.status).toBe(200);
     const types = officerPolice.data().items.map((e: any) => e.eventType);
     expect(types).toContain("DOCUMENT_COMMITTED");
   });
 
-  test("search: q matches title/filename/document id/reference (spec §41)", async () => {
+  t("search: q matches title/filename/document id/reference (spec §41)", async () => {
     const byRef = await officerPolice.get(`/api/v1/cases/${CASE1}/documents?q=${encodeURIComponent("FIR/124")}`);
     expect(byRef.status).toBe(200);
     expect(byRef.data().items.some((d: any) => d.id === DOC1)).toBe(true);
@@ -885,7 +892,7 @@ describe("Phase 3 — events, audit and search", () => {
     expect(byId.data().items[0].id).toBe("DOC-MP-IND-2026-000003");
   });
 
-  test("filters: type, classification, department + pagination", async () => {
+  t("filters: type, classification, department + pagination", async () => {
     const fir = await officerPolice.get(`/api/v1/cases/${CASE1}/documents?type=FIR`);
     expect(fir.data().items.every((d: any) => d.documentType === "FIR")).toBe(true);
     expect(fir.data().items.length).toBeGreaterThanOrEqual(1);
@@ -899,7 +906,7 @@ describe("Phase 3 — events, audit and search", () => {
     expect(paged.data().page).toBe(1);
   });
 
-  test("case list response never exposes storage internals (spec §30/§64)", async () => {
+  t("case list response never exposes storage internals (spec §30/§64)", async () => {
     const res = await sys.get(`/api/v1/cases/${CASE1}/documents`);
     const raw = JSON.stringify(sys.lastBody);
     expect(raw).not.toContain("storageKey");

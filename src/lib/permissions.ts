@@ -67,6 +67,18 @@ export const PERMISSIONS = {
   AI_USE: "ai.use",
   AI_REVIEW: "ai.review",
   AI_CONFIGURE: "ai.configure",
+  // Phase 8 — inter-department integration (spec §38). Role
+  // permission is necessary but NOT sufficient: every integration
+  // route additionally enforces DEPARTMENT SCOPING against the
+  // connection owner (src/lib/integrations/authorization.ts) and
+  // case-level access on import/export targets.
+  INTEGRATION_READ: "integration.read",
+  INTEGRATION_CONFIGURE: "integration.configure",
+  INTEGRATION_TEST: "integration.test",
+  INTEGRATION_IMPORT: "integration.import",
+  INTEGRATION_EXPORT: "integration.export",
+  INTEGRATION_RESOLVE_CONFLICT: "integration.resolve_conflict",
+  INTEGRATION_ADMIN: "integration.admin",
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -111,6 +123,13 @@ const SYSTEM_ADMIN: Permission[] = [
   PERMISSIONS.AI_USE,
   PERMISSIONS.AI_REVIEW,
   PERMISSIONS.AI_CONFIGURE,
+  PERMISSIONS.INTEGRATION_READ,
+  PERMISSIONS.INTEGRATION_CONFIGURE,
+  PERMISSIONS.INTEGRATION_TEST,
+  PERMISSIONS.INTEGRATION_IMPORT,
+  PERMISSIONS.INTEGRATION_EXPORT,
+  PERMISSIONS.INTEGRATION_RESOLVE_CONFLICT,
+  PERMISSIONS.INTEGRATION_ADMIN,
 ];
 
 const DEPARTMENT_ADMIN: Permission[] = [
@@ -145,6 +164,15 @@ const DEPARTMENT_ADMIN: Permission[] = [
   PERMISSIONS.REPORT_GENERATE,
   PERMISSIONS.AI_USE,
   PERMISSIONS.AI_REVIEW,
+  // Phase 8: department-scoped integration operations (spec §38).
+  // Configure is capped: a department admin may only configure
+  // DEPARTMENT-scoped connections (enforced in authorization.ts).
+  PERMISSIONS.INTEGRATION_READ,
+  PERMISSIONS.INTEGRATION_CONFIGURE,
+  PERMISSIONS.INTEGRATION_TEST,
+  PERMISSIONS.INTEGRATION_IMPORT,
+  PERMISSIONS.INTEGRATION_EXPORT,
+  PERMISSIONS.INTEGRATION_RESOLVE_CONFLICT,
 ];
 
 const OFFICER: Permission[] = [
@@ -186,9 +214,11 @@ const AUDITOR: Permission[] = [
   PERMISSIONS.AUDIT_VERIFY, // Phase 4: run chain verification (read-only operation)
   PERMISSIONS.REPORT_GENERATE, // Phase 4: read-level report generation
   PERMISSIONS.AI_USE, // Phase 5: assistive AI (search/ask/view) — clearance still applies
+  PERMISSIONS.INTEGRATION_READ, // Phase 8: read-only integration history (spec §38)
   // Deliberately ABSENT: AI_REVIEW (auditors observe, they do not verify AI results —
   // verification is an operational act), AI_CONFIGURE, audit mutation (does not exist),
-  // case/document/evidence write permissions, LEDGER_MANAGE.
+  // case/document/evidence write permissions, LEDGER_MANAGE,
+  // integration configure/test/import/export/admin (spec §38: AUDITOR is read-only).
 ];
 
 export const ROLE_PERMISSIONS: Record<string, Permission[]> = {

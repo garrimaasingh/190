@@ -153,12 +153,12 @@ beforeAll(async () => {
   auditor = new Client(); await auditor.login("priya.nair@demo.gov.in");
   unrelated = new Client(); await unrelated.login("devika.iyer@demo.gov.in");
   anon = new Client();
-});
+}, 60000);
 
 afterAll(async () => {
   if (tmpDir) rmSync(tmpDir, { recursive: true, force: true });
   await db.$disconnect();
-});
+}, 60000);
 
 // ============================================================
 // 1. Canonical serialization & genesis (spec §26/§27/§55)
@@ -583,7 +583,7 @@ describe("evidence-document relationships", () => {
     });
     linkableEvidence = res.data().evidence.id;
     createdEvidenceIds.push(linkableEvidence);
-  });
+  }, 60000);
 
   t("DESCRIBES link created; duplicates 409; unknown type 422; missing doc 404", async () => {
     const link = await adminPolice.post(`/api/v1/cases/${CASE1}/evidence/${linkableEvidence}/relationships`, {

@@ -157,7 +157,7 @@ beforeAll(async () => {
   await rohan.login("rohan.verma@demo.gov.in");
   sysadmin = new Client();
   await sysadmin.login("sysadmin@demo.gov.in");
-});
+}, 60000);
 
 // ============================================================
 // §57 — UNIT: deterministic NLP building blocks

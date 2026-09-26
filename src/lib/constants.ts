@@ -899,3 +899,208 @@ export const AI_RATE_LIMITS = {
 export const AI_EMBEDDING_DIMENSION = 256;
 export const AI_CHUNK_TARGET_CHARS = 800;
 export const AI_CHUNK_MAX_CHARS = 1000;
+
+// ============================================================
+// PHASE 8 — Inter-Department Integration registries (spec §2-§8).
+// The platform is a centralized secure case/document layer with
+// capability-declared adapters; it does NOT replace government
+// systems and NO real government API is assumed (spec §1/§72).
+// Every shipped provider is explicitly MOCK/SANDBOX-labeled.
+// ============================================================
+
+export const INTEGRATION_PROVIDER_TYPES = [
+  "CCTNS",
+  "E_FORENSICS",
+  "E_PROSECUTION",
+  "E_COURTS",
+  "E_PRISONS",
+  "ICJS",
+] as const;
+export type IntegrationProviderType = (typeof INTEGRATION_PROVIDER_TYPES)[number];
+
+export const INTEGRATION_PROVIDER_LABELS: Record<string, string> = {
+  CCTNS: "CCTNS (Crime & Criminal Tracking Network)",
+  E_FORENSICS: "e-Forensics",
+  E_PROSECUTION: "e-Prosecution",
+  E_COURTS: "e-Courts / CIS",
+  E_PRISONS: "e-Prisons",
+  ICJS: "ICJS (Inter-operable Criminal Justice System)",
+};
+
+export const INTEGRATION_PROVIDER_MODES = ["MOCK", "SANDBOX", "REAL"] as const;
+// MOCK = in-platform simulator (no external system exists behind it).
+// SANDBOX = reserved for a real provider's verified sandbox (future).
+// REAL = verified production interface — none exists today (§75 W).
+export const INTEGRATION_ENVIRONMENTS = ["DEVELOPMENT", "TEST", "SANDBOX", "PRODUCTION"] as const;
+
+export const INTEGRATION_STATUSES = [
+  "CONFIGURED",
+  "CONNECTED",
+  "DISCONNECTED",
+  "ERROR",
+  "DISABLED",
+] as const;
+
+export const INTEGRATION_AUTH_TYPES = [
+  "NONE",
+  "API_KEY",
+  "OAUTH2_CC",
+  "MTLS",
+  "SIGNED_REQUEST",
+] as const;
+
+export const INTEGRATION_SCOPES = ["DEPARTMENT", "GLOBAL"] as const;
+
+export const INTEGRATION_JOB_STATUSES = [
+  "QUEUED",
+  "PROCESSING",
+  "COMPLETED",
+  "PARTIAL",
+  "FAILED",
+  "CANCELLED",
+] as const;
+
+export const INTEGRATION_IMPORT_TYPES = ["CASE", "DOCUMENT", "EVIDENCE", "CASE_BUNDLE"] as const;
+export const INTEGRATION_EXPORT_TYPES = ["CASE_PACKAGE", "DOCUMENT", "EVIDENCE"] as const;
+
+export const INTEGRATION_RECORD_TYPES = ["CASE", "DOCUMENT", "EVIDENCE"] as const;
+
+export const INTEGRATION_VALIDATION_STATUSES = [
+  "PENDING",
+  "VALID",
+  "INVALID",
+  "SCHEMA_UNSUPPORTED",
+] as const;
+
+export const INTEGRATION_CONFLICT_STATUSES = [
+  "NONE",
+  "DETECTED",
+  "RESOLVED",
+] as const;
+
+export const INTEGRATION_PROCESSING_STATUSES = [
+  "PENDING",
+  "STAGED",
+  "APPROVED",
+  "IMPORTED",
+  "REJECTED",
+  "FAILED",
+  "SKIPPED_DUPLICATE",
+] as const;
+
+// Conflict resolution states (spec §22)
+export const INTEGRATION_RESOLUTION_STATUSES = [
+  "OPEN",
+  "RESOLVED_CENTRAL",
+  "RESOLVED_EXTERNAL",
+  "MERGED",
+  "IGNORED",
+] as const;
+
+export const INTEGRATION_WEBHOOK_STATUSES = ["RECEIVED", "VALIDATED", "PROCESSED", "REJECTED", "FAILED"] as const;
+
+// Source authority model (spec §23): the SOURCE of a value is
+// distinct from the AUTHORITY of the central record.
+export const SOURCE_AUTHORITY_VALUES = [
+  "CENTRAL_AUTHORITATIVE",
+  "EXTERNAL_AUTHORITATIVE",
+  "EXTERNAL_SOURCE",
+  "AI_DERIVED",
+] as const;
+
+// Capability model (spec §4) — the UI and backend MUST respect these.
+export const INTEGRATION_CAPABILITY_KEYS = [
+  "can_search_cases",
+  "can_read_case",
+  "can_import_case",
+  "can_export_case",
+  "can_read_documents",
+  "can_import_documents",
+  "can_export_documents",
+  "can_read_evidence",
+  "can_import_evidence",
+  "can_export_evidence",
+  "supports_webhooks",
+  "supports_polling",
+  "supports_batch_import",
+  "supports_realtime",
+  "supports_acknowledgement",
+] as const;
+export type IntegrationCapabilityKey = (typeof INTEGRATION_CAPABILITY_KEYS)[number];
+
+// Integration audit events (spec §37) — appended to the Phase 4
+// immutable hash chain. References only; NEVER credentials or full
+// payloads (§37/§65).
+export const INTEGRATION_AUDIT_EVENT_TYPES = [
+  "INTEGRATION_CONNECTION_CREATED",
+  "INTEGRATION_CONNECTION_UPDATED",
+  "INTEGRATION_CONNECTION_TESTED",
+  "INTEGRATION_AUTHENTICATION_FAILED",
+  "INTEGRATION_IMPORT_STARTED",
+  "INTEGRATION_IMPORT_COMPLETED",
+  "INTEGRATION_IMPORT_FAILED",
+  "INTEGRATION_EXPORT_STARTED",
+  "INTEGRATION_EXPORT_COMPLETED",
+  "INTEGRATION_EXPORT_FAILED",
+  "INTEGRATION_RECORD_IMPORTED",
+  "INTEGRATION_RECORD_REJECTED",
+  "INTEGRATION_CONFLICT_CREATED",
+  "INTEGRATION_CONFLICT_RESOLVED",
+  "INTEGRATION_WEBHOOK_RECEIVED",
+  "INTEGRATION_WEBHOOK_REJECTED",
+  "INTEGRATION_SYNC_STARTED",
+  "INTEGRATION_SYNC_COMPLETED",
+  "INTEGRATION_SYNC_FAILED",
+  "INTEGRATION_HEALTH_CHECKED",
+  "INTEGRATION_CIRCUIT_OPENED",
+  "INTEGRATION_SCHEMA_UNSUPPORTED",
+  "INTEGRATION_ACCESS_DENIED",
+] as const;
+export type IntegrationAuditEventType = (typeof INTEGRATION_AUDIT_EVENT_TYPES)[number];
+
+// Error categories for the retry classifier (spec §67: retry ONLY
+// transient errors; never blindly retry auth/validation/authz/schema).
+export const INTEGRATION_ERROR_CATEGORIES = [
+  "TIMEOUT",
+  "NETWORK",
+  "RATE_LIMITED",
+  "SERVER_ERROR",
+  "AUTH_FAILED",
+  "FORBIDDEN",
+  "NOT_FOUND",
+  "VALIDATION",
+  "SCHEMA_UNSUPPORTED",
+  "CIRCUIT_OPEN",
+  "PROVIDER_ERROR",
+] as const;
+export type IntegrationErrorCategory = (typeof INTEGRATION_ERROR_CATEGORIES)[number];
+
+// Transient categories eligible for retry with backoff (spec §67).
+export const INTEGRATION_RETRYABLE_CATEGORIES: string[] = [
+  "TIMEOUT",
+  "NETWORK",
+  "RATE_LIMITED",
+  "SERVER_ERROR",
+];
+
+export const INTEGRATION_RATE_LIMITS = {
+  TEST: { limit: 10, windowMs: 5 * 60 * 1000 }, // connection tests
+  IMPORT: { limit: 10, windowMs: 5 * 60 * 1000 }, // import job starts
+  EXPORT: { limit: 10, windowMs: 5 * 60 * 1000 }, // export job starts
+  SYNC: { limit: 20, windowMs: 5 * 60 * 1000 },
+  WEBHOOK: { limit: 120, windowMs: 5 * 60 * 1000 }, // per provider endpoint
+} as const;
+
+// Webhook clock-skew tolerance (spec §30): timestamps outside this
+// window are rejected as replayed/stale.
+export const INTEGRATION_WEBHOOK_TIMESTAMP_TOLERANCE_MS = 5 * 60 * 1000;
+
+// External-case-id formats the central platform never auto-trusts:
+// validation patterns per provider (spec §20 identifier formats).
+export const INTEGRATION_EXTERNAL_ID_MAX_LENGTH = 120;
+
+// Sync schedule bounds (spec §33: never poll beyond provider limits).
+export const INTEGRATION_SYNC_MIN_FREQUENCY_MINUTES = 5;
+export const INTEGRATION_SYNC_MAX_FREQUENCY_MINUTES = 1440;
+
+export type IntegrationEnvironment = (typeof INTEGRATION_ENVIRONMENTS)[number];

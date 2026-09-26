@@ -50,6 +50,15 @@ import {
   AI_REVIEWABLE_RESULT_TYPES,
   AI_AUDIT_EVENT_TYPES,
   LEDGER_ACTIVE_ADAPTER,
+  // Phase 8
+  INTEGRATION_PROVIDER_TYPES,
+  INTEGRATION_PROVIDER_LABELS,
+  INTEGRATION_PROVIDER_MODES,
+  INTEGRATION_ENVIRONMENTS,
+  INTEGRATION_STATUSES,
+  INTEGRATION_CAPABILITY_KEYS,
+  INTEGRATION_AUDIT_EVENT_TYPES,
+  INTEGRATION_RESOLUTION_STATUSES,
 } from "@/lib/constants";
 import { ROLE_PERMISSIONS } from "@/lib/permissions";
 
@@ -115,6 +124,15 @@ export async function GET(req: Request) {
       documentAiStatuses: DOCUMENT_AI_STATUSES,
       aiReviewableResultTypes: AI_REVIEWABLE_RESULT_TYPES,
       aiAuditEventTypes: AI_AUDIT_EVENT_TYPES,
+      // Phase 8 — integration reference data (spec §2-§8/§37/§71)
+      integrationProviderTypes: INTEGRATION_PROVIDER_TYPES,
+      integrationProviderLabels: INTEGRATION_PROVIDER_LABELS,
+      integrationProviderModes: INTEGRATION_PROVIDER_MODES,
+      integrationEnvironments: INTEGRATION_ENVIRONMENTS,
+      integrationStatuses: INTEGRATION_STATUSES,
+      integrationCapabilityKeys: INTEGRATION_CAPABILITY_KEYS,
+      integrationAuditEventTypes: INTEGRATION_AUDIT_EVENT_TYPES,
+      integrationResolutionStatuses: INTEGRATION_RESOLUTION_STATUSES,
     });
   } catch (err) {
     return handleApiError(err);

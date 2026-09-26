@@ -13,7 +13,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { LayoutDashboard, Network, Building2, Users, ScrollText, UserCircle, Settings as SettingsIcon, Menu, LogOut, ShieldCheck, FolderSearch, Boxes, Scale, FileCheck2, ShieldEllipsis, SearchCheck, Bot, UserCheck2 } from "lucide-react";
+import { LayoutDashboard, Network, Building2, Users, ScrollText, UserCircle, Settings as SettingsIcon, Menu, LogOut, ShieldCheck, FolderSearch, Boxes, Scale, FileCheck2, ShieldEllipsis, SearchCheck, Bot, UserCheck2, Plug } from "lucide-react";
 
 // ============================================================
 // AppShell (spec §20/§53): role-aware sidebar + topbar.
@@ -45,6 +45,9 @@ export type ViewKey =
   | "audit"
   | "audit-detail"
   | "audit-integrity"
+  | "integrations"
+  | "integration-detail"
+  | "integration-jobs"
   | "reports";
 
 export interface NavItem {
@@ -69,6 +72,8 @@ const NAV: NavItem[] = [
   { key: "audit", label: "Audit Log", icon: <Scale size={18} aria-hidden />, roles: ["SYSTEM_ADMIN", "AUDITOR"] },
   { key: "audit-integrity", label: "Audit Integrity", icon: <ShieldEllipsis size={18} aria-hidden />, roles: ["SYSTEM_ADMIN", "AUDITOR"] },
   { key: "reports", label: "Reports", icon: <FileCheck2 size={18} aria-hidden />, roles: ["SYSTEM_ADMIN", "AUDITOR", "DEPARTMENT_ADMIN"] },
+  { key: "integrations", label: "Integrations", icon: <Plug size={18} aria-hidden />, roles: ["SYSTEM_ADMIN", "DEPARTMENT_ADMIN", "AUDITOR"] },
+  { key: "integration-jobs", label: "Integration Jobs", icon: <Plug size={18} aria-hidden />, roles: ["SYSTEM_ADMIN", "DEPARTMENT_ADMIN", "AUDITOR"] },
   { key: "profile", label: "My Profile", icon: <UserCircle size={18} aria-hidden />, roles: ["SYSTEM_ADMIN", "DEPARTMENT_ADMIN", "OFFICER", "AUDITOR"] },
   { key: "settings", label: "Settings", icon: <SettingsIcon size={18} aria-hidden />, roles: ["SYSTEM_ADMIN", "DEPARTMENT_ADMIN", "OFFICER", "AUDITOR"] },
 ];

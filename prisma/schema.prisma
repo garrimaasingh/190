@@ -103,6 +103,7 @@ model Department {
   evidenceTransfersTo     EvidenceTransfer[]  @relation("evidenceTransferTo")
   aiJobsRequested       AIProcessingJob[] @relation("aiJobRequesterDepartment")
   aiReviewsGiven        AIReview[]        @relation("aiReviewDepartment")
+  integrationsOwned     IntegrationConnection[] @relation("integrationOwner")
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
 
@@ -152,6 +153,10 @@ model Officer {
   aiEntityMatchesReviewed  EntityCandidateMatch[]         @relation("entityMatchReviewer")
   aiRelationshipsReviewed  AIRelationshipSuggestion[]     @relation("aiRelationshipReviewer")
   aiReviewsGiven           AIReview[]                     @relation("aiReviewReviewer")
+  integrationsCreated      IntegrationConnection[]        @relation("integrationCreator")
+  integrationsImportedBy   IntegrationImportJob[]         @relation("integrationImporter")
+  integrationsExportedBy   IntegrationExportJob[]         @relation("integrationExporter")
+  integrationConflictsResolved IntegrationConflict[]     @relation("integrationConflictResolver")
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
 
@@ -250,6 +255,7 @@ model Case {
   evidenceTransfers             EvidenceTransfer[]
   aiJobs                        AIProcessingJob[]  @relation("aiJobCase")
   aiTimelineEvents              AITimelineEvent[]  @relation("caseAiTimeline")
+  externalCaseReferences        ExternalCaseReference[]
 
   createdAt                     DateTime  @default(now())
   updatedAt                     DateTime  @updatedAt
@@ -472,6 +478,7 @@ model CaseDocument {
   embeddings          DocumentEmbedding[]        @relation("documentEmbedding")
   aiRelSuggestionsAsSource AIRelationshipSuggestion[] @relation("aiRelSource")
   aiRelSuggestionsAsTarget AIRelationshipSuggestion[] @relation("aiRelTarget")
+  externalDocumentReferences ExternalDocumentReference[]
 }
 
 model DocumentRelationship {
@@ -624,6 +631,7 @@ model Evidence {
 
   transfers                   EvidenceTransfer[]
   documentRelationships       EvidenceDocumentRelationship[]
+  externalEvidenceReferences  ExternalEvidenceReference[]
 
   @@index([caseId])
   @@index([caseId, status])
@@ -1201,4 +1209,381 @@ model AIConfig {
   allowedProviders                  String?  // JSON allowlist
   updatedAt                         DateTime @updatedAt
   updatedByOfficerId                String?
+}
+
+// ============================================================
+// PHASE 8 — Inter-Department Integration (adapter architecture).
+//
+// The platform is a CENTRALIZED SECURE CASE/DOCUMENT LAYER. It does
+// NOT replace CCTNS / ICJS / e-Forensics / e-Prosecution / e-Courts /
+// e-Prisons — it exchanges authorized data with them through
+// capability-declared adapters. NO real government API is assumed:
+// every shipped provider is MOCK/SANDBOX-labeled until a verified
+// government interface exists (spec §1/§71).
+//
+// RULES ENCODED HERE:
+// - Central IDs stay authoritative; external systems are mapped via
+//   External*Reference rows (spec §11-§13) — never replaced.
+// - External data is staged → validated → conflict-checked →
+//   human-approved before it touches central records (§15/§21/§22).
+// - Credentials are secret-store REFERENCES, never plaintext (§7).
+// - Custody fields are NEVER written by integration (§28/§29).
+// - Environments are explicit: DEVELOPMENT/TEST/SANDBOX/PRODUCTION
+//   with PRODUCTION requiring explicit confirmation (§8/§70).
+// SQLite note: statuses are strings validated at the boundary via
+// src/lib/integrations/constants.ts (no Prisma enums on SQLite).
+// ============================================================
+
+model IntegrationConnection {
+  id                    String    @id @default(cuid())
+  connectionId          String    @unique // public identity: CONN-MP-IND-2026-000001
+  providerType          String    // INTEGRATION_PROVIDER_TYPES (CCTNS, E_FORENSICS, ...)
+  providerMode          String    @default("MOCK") // MOCK | SANDBOX | REAL — UI MUST display this (§71)
+  displayName           String
+  environment           String    @default("SANDBOX") // DEVELOPMENT | TEST | SANDBOX | PRODUCTION
+  status                String    @default("CONFIGURED") // CONFIGURED | CONNECTED | DISCONNECTED | ERROR | DISABLED
+
+  // Non-secret endpoint reference only (mock://cctns or a config-key
+  // pointing at the deployment's endpoint registry). NEVER a URL
+  // embedding credentials.
+  baseUrlReference      String?
+  authenticationType    String    @default("NONE") // NONE | API_KEY | OAUTH2_CC | MTLS | SIGNED_REQUEST
+  credentialRef         String?   // secret-store pointer (secret://...) — never secret material (§7)
+  hasWebhookSecret      Boolean   @default(false)
+
+  // Department scoping (§39): a Police connection is not usable by
+  // Forensics unless the connection belongs to (or is GLOBAL and the
+  // actor is SYSTEM_ADMIN).
+  ownerDepartmentId     String
+  ownerDepartment       Department @relation("integrationOwner", fields: [ownerDepartmentId], references: [id], onDelete: Restrict)
+  scope                 String    @default("DEPARTMENT") // DEPARTMENT | GLOBAL
+  allowedOperations     String    @default("read,test,import,export") // csv gate refined by capabilities
+
+  capabilitiesSnapshot  String?   // JSON snapshot resolved from the provider at test/create time
+  configJson            String?   // non-secret runtime config: timeouts, retries, mock scenario flags
+
+  enabled               Boolean   @default(true)
+  lastHealthCheckAt     DateTime?
+  lastHealthStatus      String?
+  lastHealthLatencyMs   Int?
+  lastSuccessAt         DateTime?
+  lastFailureAt         DateTime?
+  lastErrorCategory     String?
+  consecutiveFailures   Int       @default(0)
+
+  createdByOfficerId    String
+  createdByOfficer      Officer   @relation("integrationCreator", fields: [createdByOfficerId], references: [id], onDelete: Restrict)
+
+  credential            IntegrationCredential?
+  importJobs            IntegrationImportJob[]
+  exportJobs            IntegrationExportJob[]
+  syncSchedules         IntegrationSyncSchedule[]
+  syncCursors           IntegrationSyncCursor[]
+  callLogs              IntegrationCallLog[]
+
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([providerType, environment])
+  @@index([ownerDepartmentId])
+  @@index([status])
+  @@index([enabled])
+}
+
+// Secret ABSTRACTION row: points into the encrypted secret store.
+// The store (src/lib/integrations/credentials.ts) holds AES-256-GCM
+// blobs outside the database; Vault/KMS adapters implement the same
+// interface later without schema change (§7).
+model IntegrationCredential {
+  id              String   @id @default(cuid())
+  connectionId    String   @unique
+  connection      IntegrationConnection @relation(fields: [connectionId], references: [connectionId], onDelete: Restrict)
+  secretReference String   // e.g. secret://integrations/CONN-.../v1
+  keyFingerprint   String?  // non-secret display fingerprint (HMAC prefix) for rotation UX
+  rotatedAt       DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+// Central Case stays authoritative (§11) — this is a LINK, not an ID swap.
+model ExternalCaseReference {
+  id                    String   @id @default(cuid())
+  caseInternalId        String
+  case                  Case     @relation(fields: [caseInternalId], references: [id], onDelete: Restrict)
+  providerType          String
+  externalSystem        String   // e.g. "CCTNS-SANDBOX-MOCK"
+  externalCaseId        String   // e.g. CCTNS-CASE-892341 / MOCK-CASE-001
+  externalCaseNumber    String?
+  externalReferenceType String   @default("CASE") // CASE | FIR | PROCEEDING
+  status                String   @default("ACTIVE") // ACTIVE | SUPERSEDED | INACTIVE
+  sourceHash            String?  // hash of the external payload at import (provenance §14)
+  schemaVersion         String?
+  mappingVersion        Int?
+  importedByOfficerId   String
+  importJobId           String?
+  importedAt            DateTime @default(now())
+  lastSyncedAt          DateTime?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@unique([providerType, externalSystem, externalCaseId])
+  @@index([caseInternalId])
+  @@index([providerType])
+}
+
+model ExternalDocumentReference {
+  id                  String   @id @default(cuid())
+  documentInternalId  String
+  document            CaseDocument @relation(fields: [documentInternalId], references: [id], onDelete: Restrict)
+  providerType        String
+  externalSystem      String
+  externalDocumentId  String
+  externalReference   String?
+  status              String   @default("ACTIVE")
+  sourceHash          String?  // hash reported by the external system (§26)
+  centralHash         String?  // SHA-256 computed by THIS platform over received bytes
+  hashVerified        Boolean  @default(false) // true only when both present and equal
+  importedByOfficerId String
+  importJobId         String?
+  importedAt          DateTime @default(now())
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@unique([providerType, externalSystem, externalDocumentId])
+  @@index([documentInternalId])
+}
+
+model ExternalEvidenceReference {
+  id                      String   @id @default(cuid())
+  evidenceInternalId      String
+  evidence                Evidence @relation(fields: [evidenceInternalId], references: [id], onDelete: Restrict)
+  providerType            String
+  externalSystem          String
+  externalEvidenceId      String
+  externalReference       String?
+  status                  String   @default("ACTIVE")
+  // Provenance (§27): history is NEVER fabricated. When the source
+  // system cannot provide historical custody, this stays false and
+  // the record says HISTORY_UNAVAILABLE.
+  custodyHistoryAvailable Boolean  @default(false)
+  sourceCustodian         String?
+  sourceDepartment        String?
+  sourceHash              String?
+  importJobId             String?
+  importedByOfficerId     String
+  importedAt              DateTime @default(now())
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  @@unique([providerType, externalSystem, externalEvidenceId])
+  @@index([evidenceInternalId])
+}
+
+model IntegrationImportJob {
+  id                    String    @id @default(cuid())
+  jobId                 String    @unique // IJP-MP-IND-2026-000001
+  connectionId          String
+  connection            IntegrationConnection @relation(fields: [connectionId], references: [id], onDelete: Restrict)
+  providerType          String
+  importType            String    // CASE | DOCUMENT | EVIDENCE | CASE_BUNDLE
+  requestedByOfficerId  String
+  requestedByOfficer    Officer   @relation("integrationImporter", fields: [requestedByOfficerId], references: [id], onDelete: Restrict)
+  status                String    @default("QUEUED") // QUEUED | PROCESSING | COMPLETED | PARTIAL | FAILED | CANCELLED
+  startedAt             DateTime?
+  completedAt           DateTime?
+  recordsReceived       Int       @default(0)
+  recordsImported       Int       @default(0)
+  recordsRejected       Int       @default(0)
+  recordsConflicted     Int       @default(0)
+  recordsSkipped        Int       @default(0) // duplicates linked, no-op imports
+  errorSummary          String?
+  schemaVersion         String?
+  mappingVersion        Int?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  records               IntegrationImportRecord[]
+
+  @@index([connectionId])
+  @@index([status])
+  @@index([providerType])
+  @@index([createdAt])
+}
+
+model IntegrationExportJob {
+  id                    String    @id @default(cuid())
+  jobId                 String    @unique // IEX-MP-IND-2026-000001
+  connectionId          String
+  connection            IntegrationConnection @relation(fields: [connectionId], references: [id], onDelete: Restrict)
+  providerType          String
+  exportType            String    // CASE_PACKAGE | DOCUMENT | EVIDENCE
+  requestedByOfficerId  String
+  requestedByOfficer    Officer   @relation("integrationExporter", fields: [requestedByOfficerId], references: [id], onDelete: Restrict)
+  status                String    @default("QUEUED")
+  recordsSelected       Int       @default(0)
+  recordsExported       Int       @default(0)
+  recordsFailed         Int       @default(0)
+  // Encrypted package stored via the Phase 3 DocumentStorage
+  // abstraction (no second storage architecture, §44).
+  packageStorageKey     String?
+  manifestHash          String?   // SHA-256 of integrity.json content
+  startedAt             DateTime?
+  completedAt           DateTime?
+  errorSummary          String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([connectionId])
+  @@index([status])
+}
+
+// Staging record (§21): raw reference + normalized payload +
+// validation/conflict/processing state. One malformed record never
+// crashes the job (§20).
+model IntegrationImportRecord {
+  id                  String   @id @default(cuid())
+  importJobId         String
+  importJob           IntegrationImportJob @relation(fields: [importJobId], references: [id], onDelete: Restrict)
+  externalRecordId    String
+  recordType          String   // CASE | DOCUMENT | EVIDENCE
+  rawReference        String?  // external identity/reference — NOT raw payloads
+  normalizedPayload   String?  // mapped+validated JSON (data minimization §64)
+  validationStatus    String   @default("PENDING") // PENDING | VALID | INVALID | SCHEMA_UNSUPPORTED
+  validationErrors    String?  // structured JSON errors
+  conflictStatus      String   @default("NONE") // NONE | DETECTED | RESOLVED
+  processingStatus    String   @default("PENDING") // PENDING | STAGED | APPROVED | IMPORTED | REJECTED | FAILED | SKIPPED_DUPLICATE
+  errorDetails        String?
+  centralRecordRef    String?  // central public id after import/link (CASE-… / DOC-… / EVD-…)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([importJobId])
+  @@index([processingStatus])
+  @@index([validationStatus])
+}
+
+model IntegrationConflict {
+  id                    String    @id @default(cuid())
+  conflictId            String    @unique // ICF-MP-IND-2026-000001
+  importJobId           String?
+  importRecordId        String?
+  caseRef               String?   // public CASE-…
+  documentRef           String?
+  evidenceRef           String?
+  providerType          String
+  externalReference     String?
+  fieldName             String
+  centralValue          String?
+  externalValue         String?
+  centralSource         String    @default("CENTRAL_AUTHORITATIVE") // SOURCE_AUTHORITY values (§23)
+  externalSource        String    @default("EXTERNAL_SOURCE")
+  centralUpdatedAt      DateTime?
+  externalUpdatedAt     DateTime?
+  status                String    @default("OPEN") // OPEN | RESOLVED_CENTRAL | RESOLVED_EXTERNAL | MERGED | IGNORED
+  resolvedByOfficerId   String?
+  resolvedByOfficer     Officer?  @relation("integrationConflictResolver", fields: [resolvedByOfficerId], references: [id], onDelete: SetNull)
+  resolvedAt            DateTime?
+  resolutionNote        String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([status])
+  @@index([caseRef])
+  @@index([providerType])
+}
+
+model IntegrationWebhookEvent {
+  id                String    @id @default(cuid())
+  providerType      String
+  connectionId      String?
+  externalEventId   String?
+  eventType         String
+  receivedAt        DateTime  @default(now())
+  signatureStatus   String    @default("PENDING") // VERIFIED | INVALID | MISSING | DISABLED
+  processingStatus  String    @default("RECEIVED") // RECEIVED | VALIDATED | PROCESSED | REJECTED | FAILED
+  payloadHash       String?   // sha256 of raw body — audit-safe reference, never the payload
+  processedAt       DateTime?
+  errorMessage      String?
+  idempotencyKey    String    // provider event id, or deterministic hash when absent (§32)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@unique([providerType, idempotencyKey])
+  @@index([processingStatus])
+  @@index([receivedAt])
+}
+
+model IntegrationSyncSchedule {
+  id               String   @id @default(cuid())
+  connectionId     String
+  connection       IntegrationConnection @relation(fields: [connectionId], references: [id], onDelete: Restrict)
+  providerType     String
+  syncType         String   @default("POLLING") // POLLING | WEBHOOK_ASSISTED
+  frequencyMinutes Int      @default(60) // clamped to provider limits (§33)
+  enabled          Boolean  @default(true)
+  lastRunAt        DateTime?
+  nextRunAt        DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([connectionId])
+  @@index([enabled])
+}
+
+model IntegrationSyncCursor {
+  id                  String    @id @default(cuid())
+  connectionId        String
+  connection          IntegrationConnection @relation(fields: [connectionId], references: [id], onDelete: Restrict)
+  providerType        String
+  resourceType        String    // CASE | DOCUMENT | EVIDENCE
+  cursorValue         String?   // updated_since / page token — never re-download everything (§34)
+  lastSuccessfulSync  DateTime?
+  updatedAt           DateTime  @updatedAt
+
+  @@unique([connectionId, resourceType])
+}
+
+model IntegrationSchemaVersion {
+  id                String   @id @default(cuid())
+  providerType      String
+  schemaName        String   @default("case_exchange")
+  schemaVersion     String   // e.g. 1.0
+  supported         Boolean  @default(true)
+  minMappingVersion Int      @default(1)
+  notes             String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([providerType, schemaName, schemaVersion])
+}
+
+model IntegrationMappingVersion {
+  id             String   @id @default(cuid())
+  providerType   String
+  mappingName    String   // case_import | document_import | evidence_import
+  mappingVersion Int
+  mappingJson    String   // FieldMapping[] — mappings are DATA, not code (§18)
+  isActive       Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([providerType, mappingName, mappingVersion])
+}
+
+// Operational metrics (§66) — references and counters only, NEVER
+// payload contents.
+model IntegrationCallLog {
+  id            String   @id @default(cuid())
+  connectionId  String
+  connection    IntegrationConnection @relation(fields: [connectionId], references: [id], onDelete: Restrict)
+  providerType  String
+  operation     String
+  outcome       String   // SUCCESS | FAILURE
+  latencyMs     Int?
+  errorCategory String?  // TIMEOUT | NETWORK | RATE_LIMITED | SERVER_ERROR | AUTH_FAILED | ...
+  retryCount    Int      @default(0)
+  createdAt     DateTime @default(now())
+
+  @@index([connectionId, createdAt])
+  @@index([outcome])
 }

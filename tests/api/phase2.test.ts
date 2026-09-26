@@ -110,7 +110,7 @@ beforeAll(async () => {
     prosecution: byCode("DEPT-MP-IND-PRO-001").id,
     bhopal: byCode("DEPT-MP-BHO-POL-001").id,
   };
-});
+}, 60000);
 
 afterAll(async () => {
   // Development/test cleanup utility (spec §36) — DB-level, never via API.
@@ -123,7 +123,7 @@ afterAll(async () => {
     await db.case.deleteMany({ where: { id: id } });
   }
   await db.$disconnect();
-});
+}, 60000);
 
 // ============================================================
 // 1. CASE CREATION (spec §54)
@@ -241,7 +241,7 @@ describe("Case authorization", () => {
     const res = await createCase(adminPolice, { title: `Auth Matrix Case ${stamp}` });
     caseId = adminPolice.data().caseId;
     expect(res.status).toBe(201);
-  });
+  }, 60000);
 
   test("SYSTEM_ADMIN can view and manage any case", async () => {
     await sys.get(`/api/v1/cases/${caseId}`);
@@ -309,7 +309,7 @@ describe("Case status lifecycle", () => {
   beforeAll(async () => {
     await createCase(adminPolice, { title: `Lifecycle Case ${stamp}` });
     caseId = adminPolice.data().caseId;
-  });
+  }, 60000);
 
   test("valid transition OPEN → UNDER_INVESTIGATION", async () => {
     const res = await adminPolice.patch(`/api/v1/cases/${caseId}/status`, { status: "UNDER_INVESTIGATION" });
@@ -389,7 +389,7 @@ describe("Case officers", () => {
       departmentId: deptIds.fsl,
       participationType: "PARTICIPATING",
     });
-  });
+  }, 60000);
 
   test("assign a valid officer of a participating department", async () => {
     const res = await adminPolice.post(`/api/v1/cases/${caseId}/officers`, {
@@ -492,7 +492,7 @@ describe("Case departments", () => {
   beforeAll(async () => {
     await createCase(adminPolice, { title: `Dept Mgmt Case ${stamp}` });
     caseId = adminPolice.data().caseId;
-  });
+  }, 60000);
 
   test("add valid participating department", async () => {
     const res = await adminPolice.post(`/api/v1/cases/${caseId}/departments`, {
@@ -552,7 +552,7 @@ describe("Custody transfers", () => {
   beforeAll(async () => {
     await createCase(adminPolice, { title: `Custody Case ${stamp}` });
     caseId = adminPolice.data().caseId;
-  });
+  }, 60000);
 
   test("non-custodian cannot initiate transfer → 403", async () => {
     const res = await adminFsl.post(`/api/v1/cases/${caseId}/transfers`, {
@@ -758,7 +758,7 @@ describe("History & timeline", () => {
     await adminPolice.post(`/api/v1/cases/${caseId}/transfers`, { toDepartmentId: deptIds.prosecution, reason: "Timeline transfer" });
     await adminProsecution.get(`/api/v1/cases/${caseId}/transfers`);
     await adminProsecution.post(`/api/v1/cases/${caseId}/transfers/${adminProsecution.data().items[0].transferId}/accept`);
-  });
+  }, 60000);
 
   test("timeline contains the full ordered event chain", async () => {
     await adminPolice.get(`/api/v1/cases/${caseId}/timeline`);

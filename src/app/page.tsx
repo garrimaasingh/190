@@ -28,6 +28,8 @@ import { ReportsView } from "@/components/platform/views/ReportsView";
 import { AIDashboardView } from "@/components/platform/views/AIDashboardView";
 import { AIReviewQueueView } from "@/components/platform/views/AIReviewQueueView";
 import { GlobalSearchView } from "@/components/platform/views/GlobalSearchView";
+import { IntegrationsView, IntegrationDetailView } from "@/components/platform/views/IntegrationsView";
+import { IntegrationJobsView } from "@/components/platform/views/IntegrationJobsView";
 import { LoadingState, ErrorState } from "@/components/platform/common";
 import { ShieldAlert } from "lucide-react";
 
@@ -40,6 +42,7 @@ import { ShieldAlert } from "lucide-react";
 
 interface Navigation {
   view: ViewKey;
+  integrationId?: string;
   departmentId?: string;
   officerId?: string;
   caseId?: string;
@@ -335,6 +338,42 @@ function Shell() {
           <AccessDenied what="report generation" />
         ) : (
           <ReportsView />
+        );
+      break;
+    case "integrations":
+      content =
+        role === "OFFICER" ? (
+          <AccessDenied what="inter-department integration" />
+        ) : nav.integrationId ? (
+          <IntegrationDetailView
+            connectionId={nav.integrationId}
+            onBack={() => setNav({ view: "integrations" })}
+          />
+        ) : (
+          <IntegrationsView
+            onOpenConnection={(connectionId) =>
+              setNav({ view: "integration-detail", integrationId: connectionId })
+            }
+          />
+        );
+      break;
+    case "integration-detail":
+      content =
+        role === "OFFICER" || !nav.integrationId ? (
+          <AccessDenied what="integration connection details" />
+        ) : (
+          <IntegrationDetailView
+            connectionId={nav.integrationId}
+            onBack={() => setNav({ view: "integrations" })}
+          />
+        );
+      break;
+    case "integration-jobs":
+      content =
+        role === "OFFICER" ? (
+          <AccessDenied what="integration job review" />
+        ) : (
+          <IntegrationJobsView />
         );
       break;
     default:

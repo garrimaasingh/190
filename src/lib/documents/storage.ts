@@ -35,10 +35,13 @@ import { Readable } from "stream";
 // are namespaced by their `evidence/` key prefix under the same root.
 const STORAGE_ROOT = path.join(process.cwd(), "db", "uploads", "documents");
 
-/** Canonical key shapes: cases/<id>/documents/<uuid>/object and evidence/<caseId>/<uuid>/object */
+/** Canonical key shapes: cases/<id>/documents/<uuid>/object, evidence/<caseId>/<uuid>/object,
+ *  and (Phase 8, spec §25/§44) exports/<exportJobId>/<uuid>/object — integration export
+ *  packages share the SAME encrypted storage root and the SAME canonical-key guard. */
 const KEY_PATTERNS = [
   /^cases\/[A-Za-z0-9_-]+\/documents\/[0-9a-fA-F-]{36}\/object$/,
   /^evidence\/[A-Za-z0-9_-]+\/[0-9a-fA-F-]{36}\/object$/,
+  /^exports\/[A-Za-z0-9_-]+\/[0-9a-fA-F-]{36}\/object$/,
 ];
 
 export function buildStorageKey(caseInternalId: string, documentUuid: string): string {

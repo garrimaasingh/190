@@ -7,6 +7,9 @@
  */
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
+// Phase 8: credentials go through the SAME secret abstraction as the
+// API layer (encrypted store; the DB only ever holds a reference).
+import { integrationCredentialService } from "../src/lib/integrations/credentials";
 
 const db = new PrismaClient();
 
@@ -1159,6 +1162,104 @@ async function main() {
       const jobsDone = await db.aIProcessingJob.groupBy({ by: ["status"], _count: { _all: true } });
       const statusLine = jobsDone.map((g) => `${g.status}:${g._count._all}`).join(" ");
       console.log(`  AI         : model registry seeded; 5 documents processed through the real pipeline (${statusLine}); human review pass complete`);
+    }
+  }
+
+  // ===========================================================================
+  // PHASE 8 — Integration seed: schema/mapping versions + MOCK/SANDBOX
+  // connections with credentials through the secret abstraction.
+  // Everything here is clearly labeled MOCK/SANDBOX (spec §1/§50/§51/§71):
+  // NO real government system is contacted or claimed to be connected.
+  // ===========================================================================
+  {
+    const seedCtx = { officerId: sysadminOfficer.id, officerName: sysadminOfficer.name };
+
+    // ---- Field mappings (versioned DATA, spec §18) -------------------------
+    const caseMappings = [
+      { from: "externalCaseId", to: "externalCaseId", type: "string" as const, required: true, maxLen: 120 },
+      { from: "caseNumber", to: "externalCaseNumber", type: "string" as const, maxLen: 64 },
+      { from: "title", to: "title", type: "string" as const, required: true, maxLen: 200 },
+      { from: "description", to: "description", type: "string" as const, maxLen: 4000 },
+      { from: "caseType", to: "caseType", type: "enum" as const, required: true, enumValues: ["CRIMINAL", "CYBERCRIME", "WOMEN_SAFETY", "CHILD_RELATED", "FINANCIAL", "ORGANIZED_CRIME", "MISSING_PERSON", "FORENSIC", "OTHER"] },
+      { from: "priority", to: "priority", type: "enum" as const, default: "NORMAL", enumValues: ["LOW", "NORMAL", "HIGH", "CRITICAL"] },
+      { from: "investigatingOfficer.badge", to: "officerBadge", type: "string" as const, maxLen: 40, sensitive: true, note: "Officer identity is mapped only to a platform officer account after review — never auto-linked." },
+      { from: "updatedAt", to: "externalUpdatedAt", type: "date" as const },
+    ];
+    const documentMappings = [
+      { from: "externalDocumentId", to: "externalDocumentId", type: "string" as const, required: true, maxLen: 120 },
+      { from: "title", to: "title", type: "string" as const, required: true, maxLen: 200 },
+      { from: "documentType", to: "documentType", type: "enum" as const, default: "OTHER", enumValues: ["FIR", "CASE_DIARY", "WITNESS_STATEMENT", "INVESTIGATION_REPORT", "FORENSIC_REPORT", "CHARGE_SHEET", "PROSECUTION_DOCUMENT", "COURT_DOCUMENT", "COURT_ORDER", "JUDGMENT", "LEGAL_NOTICE", "CORRESPONDENCE", "IDENTITY_DOCUMENT", "EVIDENCE_REPORT", "OTHER"] },
+      { from: "classification", to: "classification", type: "enum" as const, default: "INTERNAL", enumValues: ["PUBLIC", "INTERNAL", "CONFIDENTIAL", "RESTRICTED", "HIGHLY_RESTRICTED"] },
+      { from: "documentDate", to: "documentDate", type: "date" as const },
+    ];
+    const evidenceMappings = [
+      { from: "externalEvidenceId", to: "externalEvidenceId", type: "string" as const, required: true, maxLen: 120 },
+      { from: "title", to: "title", type: "string" as const, required: true, maxLen: 200 },
+      { from: "evidenceType", to: "evidenceType", type: "enum" as const, default: "OTHER", enumValues: ["PHYSICAL", "DIGITAL", "DOCUMENTARY", "AUDIO", "VIDEO", "IMAGE", "FORENSIC_SAMPLE", "DEVICE", "OTHER"] },
+      { from: "classification", to: "classification", type: "enum" as const, default: "RESTRICTED", enumValues: ["INTERNAL", "CONFIDENTIAL", "RESTRICTED", "HIGHLY_RESTRICTED"] },
+      { from: "collectedAt", to: "collectedAt", type: "date" as const },
+    ];
+
+    for (const providerType of ["CCTNS", "E_FORENSICS", "E_PROSECUTION", "E_COURTS", "E_PRISONS", "ICJS"]) {
+      // Schema versions (spec §19): only 1.0 registered/supported per provider.
+      await db.integrationSchemaVersion.upsert({
+        where: { providerType_schemaName_schemaVersion: { providerType, schemaName: "case_exchange", schemaVersion: "1.0" } },
+        create: { providerType, schemaName: "case_exchange", schemaVersion: "1.0", supported: true, minMappingVersion: 1, notes: "MOCK sandbox schema — the only version this platform has ever seen." },
+        update: {},
+      });
+      for (const [mappingName, mappings] of [["case_import", caseMappings], ["document_import", documentMappings], ["evidence_import", evidenceMappings]] as const) {
+        await db.integrationMappingVersion.upsert({
+          where: { providerType_mappingName_mappingVersion: { providerType, mappingName, mappingVersion: 1 } },
+          create: { providerType, mappingName, mappingVersion: 1, mappingJson: JSON.stringify(mappings), isActive: true },
+          update: { mappingJson: JSON.stringify(mappings), isActive: true },
+        });
+      }
+    }
+
+    // ---- Connections (provider registry targets, §5/§6) --------------------
+    // credentials are stored through the secret abstraction — the DB rows
+    // hold only references. Values are clearly-labeled MOCK fixtures.
+    const connectionDefs = [
+      { connectionId: "CONN-MP-IND-2026-000001", providerType: "CCTNS", displayName: "CCTNS — Indore Police (MOCK SANDBOX)", deptId: police.id, enabled: true, config: { autoApproveLowRisk: true, importCaseDocuments: true, importCaseEvidence: true } },
+      { connectionId: "CONN-MP-IND-2026-000002", providerType: "E_FORENSICS", displayName: "e-Forensics — FSL (MOCK SANDBOX)", deptId: forensics.id, enabled: true, config: { autoApproveLowRisk: true } },
+      { connectionId: "CONN-MP-IND-2026-000003", providerType: "E_PROSECUTION", displayName: "e-Prosecution — Indore (MOCK SANDBOX)", deptId: prosecution.id, enabled: true, config: { autoApproveLowRisk: true } },
+      { connectionId: "CONN-MP-IND-2026-000004", providerType: "E_COURTS", displayName: "e-Courts/CIS — Indore (MOCK SANDBOX)", deptId: platform.id, enabled: true, config: {} },
+      { connectionId: "CONN-MP-IND-2026-000005", providerType: "E_PRISONS", displayName: "e-Prisons — Indore (MOCK SANDBOX)", deptId: platform.id, enabled: true, config: {} },
+      { connectionId: "CONN-MP-IND-2026-000006", providerType: "ICJS", displayName: "ICJS — Inter-operable layer (MOCK SANDBOX)", deptId: platform.id, enabled: true, config: {} },
+    ];
+    let seededConnections = 0;
+    for (const def of connectionDefs) {
+      const existing = await db.integrationConnection.findUnique({ where: { connectionId: def.connectionId } });
+      if (existing) continue;
+      await db.integrationConnection.create({
+        data: {
+          connectionId: def.connectionId,
+          providerType: def.providerType,
+          providerMode: "MOCK", // every seeded connection is a simulator (§71)
+          displayName: def.displayName,
+          environment: "SANDBOX",
+          status: "CONFIGURED",
+          authenticationType: "API_KEY",
+          baseUrlReference: `mock://${def.providerType.toLowerCase().replace(/_/g, "")}/sandbox`,
+          ownerDepartmentId: def.deptId,
+          scope: "DEPARTMENT",
+          allowedOperations: "read,test,import,export",
+          configJson: JSON.stringify(def.config),
+          enabled: def.enabled,
+          createdByOfficerId: sysadminOfficer.id,
+        },
+      });
+      await integrationCredentialService.setCredentials(def.connectionId, {
+        authType: "API_KEY",
+        apiKey: `mock-${def.providerType.toLowerCase()}-sandbox-key-0123456789`,
+        webhookSecret: `mock-${def.providerType.toLowerCase()}-whsec-0123456789abcdef`,
+      });
+      await db.integrationConnection.update({ where: { connectionId: def.connectionId }, data: { credentialRef: `secret://integrations/${def.connectionId}`, hasWebhookSecret: true } });
+      seededConnections += 1;
+    }
+    void seedCtx;
+    if (seededConnections > 0) {
+      console.log(`  Integration: 6 schema-version rows, 18 mapping versions, ${seededConnections} MOCK/SANDBOX connections (credentials in encrypted secret store, DB holds references only)`);
     }
   }
 
