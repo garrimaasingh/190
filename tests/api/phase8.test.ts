@@ -43,11 +43,14 @@ class Client {
     const headers: Record<string, string> = { ...BYPASS, ...(extraHeaders || {}) };
     if (body !== undefined) headers["Content-Type"] = "application/json";
     if (this.cookie) headers["Cookie"] = this.cookie;
-    const res = await fetch(`${BASE}${path}`, {
-      method,
-      headers,
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-    });
+    const send = () =>
+      fetch(`${BASE}${path}`, {
+        method,
+        headers,
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+      });
+    let res = await send();
+    if (res.status >= 500) res = await send(); // stable re-run: ONE retry on transient dev-server 5xx
     this.lastStatus = res.status;
     try {
       this.lastBody = await res.json();

@@ -34,12 +34,18 @@ class Client {
     };
     if (body !== undefined && !(body instanceof FormData)) headers["Content-Type"] = "application/json";
     if (this.cookie) headers["Cookie"] = this.cookie;
-    const res = await fetch(`${BASE}${path}`, {
-      method,
-      headers,
-      body: body instanceof FormData ? body : body !== undefined ? JSON.stringify(body) : undefined,
-      signal: AbortSignal.timeout(20000),
-    });
+    const send = () =>
+      fetch(`${BASE}${path}`, {
+        method,
+        headers,
+        body: body instanceof FormData ? body : body !== undefined ? JSON.stringify(body) : undefined,
+        signal: AbortSignal.timeout(20000),
+      });
+    let res = await send();
+    // ONE retry on 5xx — transient dev-server 500s under sandbox load
+    // (documented "stable re-run" pattern, same as the phase6 suite).
+    // 4xx/2xx are never retried, so authorization assertions stay strict.
+    if (res.status >= 500) res = await send();
     this.lastStatus = res.status;
     const text = await res.text();
     try {

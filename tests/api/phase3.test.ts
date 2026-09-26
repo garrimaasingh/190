@@ -72,12 +72,15 @@ class Client {
     const headers: Record<string, string> = { ...BYPASS, ...(extraHeaders || {}) };
     if (body !== undefined && !(body instanceof FormData)) headers["Content-Type"] = "application/json";
     if (this.cookie) headers["Cookie"] = this.cookie;
-    const res = await fetch(`${BASE}${path}`, {
-      method,
-      headers,
-      body: body instanceof FormData ? body : body !== undefined ? JSON.stringify(body) : undefined,
-      signal: AbortSignal.timeout(60000),
-    });
+    const send = () =>
+      fetch(`${BASE}${path}`, {
+        method,
+        headers,
+        body: body instanceof FormData ? body : body !== undefined ? JSON.stringify(body) : undefined,
+        signal: AbortSignal.timeout(60000),
+      });
+    let res = await send();
+    if (res.status >= 500) res = await send(); // stable re-run: ONE retry on transient dev-server 5xx
     this.lastStatus = res.status;
     this.lastHeaders = res.headers;
     const text = await res.text();
