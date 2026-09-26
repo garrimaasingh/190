@@ -668,3 +668,60 @@ export interface CaseIntegritySummary {
     informationalOnly: boolean;
   };
 }
+
+// ============================================================
+// Phase 6 — Case knowledge graph (spec §67).
+// ============================================================
+
+export interface GraphNodePayload {
+  id: string;
+  nodeKey: string;
+  nodeType: "CASE" | "DOCUMENT" | "EVIDENCE" | "ENTITY" | "DEPARTMENT";
+  label: string;
+  refId: string | null;
+  entityType: string | null;
+  classification: string | null;
+  status: string | null;
+  provenance: { model: string; id: string }[];
+}
+
+export interface GraphEdgePayload {
+  id: string;
+  edgeKey: string;
+  sourceKey: string;
+  targetKey: string;
+  edgeType: "CONTAINS" | "RELATIONSHIP" | "MENTIONS" | "SAME_ENTITY" | "PARTICIPATION";
+  relationshipType: string | null;
+  provenance: string;
+  sourceRefs: { model: string; id: string }[];
+  confirmedByOfficerId: string | null;
+  confidence: number | null;
+}
+
+export interface CaseGraphPayload {
+  caseRef: string;
+  graph: { nodes: GraphNodePayload[]; edges: GraphEdgePayload[] };
+  sync: {
+    status: string;
+    nodeCount: number;
+    edgeCount: number;
+    syncVersion: number;
+    lastSyncedAt: string | null;
+    triggeredByOfficerId: string | null;
+  } | null;
+  staleness: {
+    neverSynced: boolean;
+    stale: boolean;
+    newestSourceAt: string | null;
+    lastSyncedAt: string | null;
+  };
+  viewer: {
+    clearanceLevel: number;
+    level: string;
+    droppedNodes: number;
+    droppedEdges: number;
+    visibleNodes: number;
+    visibleEdges: number;
+  };
+  disclaimer: string;
+}

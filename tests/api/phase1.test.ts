@@ -7,6 +7,9 @@ import { describe, test, expect, beforeAll } from "bun:test";
 import { PrismaClient } from "@prisma/client";
 import sharp from "sharp";
 
+function t(name: string, fn: () => Promise<unknown> | unknown) {
+  return test(name, fn, 60000); // runbook: generous timeout — AI drain can block the event loop
+}
 const BASE = "http://localhost:3000";
 const db = new PrismaClient();
 const SEED_PASSWORD = process.env.SEED_PASSWORD || "Demo@Pass1";
@@ -144,21 +147,21 @@ beforeAll(async () => {
 // ============================================================
 
 describe("Authentication", () => {
-  test("valid login succeeds and sets session", async () => {
+  t("valid login succeeds and sets session", async () => {
     const c = new Client();
     await c.login("vishnu.kumar@demo.gov.in");
     expect(c.lastStatus).toBe(200);
     expect(c.cookie).toContain("cp_session=");
   });
 
-  test("invalid password → 401 with generic error", async () => {
+  t("invalid password → 401 with generic error", async () => {
     const c = new Client();
     await c.login("vishnu.kumar@demo.gov.in", "WrongPassword1");
     expect(c.lastStatus).toBe(401);
     expect(c.code()).toBe("INVALID_CREDENTIALS");
   });
 
-  test("unknown email → identical generic error (no existence leak)", async () => {
+  t("unknown email → identical generic error (no existence leak)", async () => {
     const c = new Client();
     await c.login("ghost@nowhere.gov.in", "Whatever123");
     expect(c.lastStatus).toBe(401);
@@ -166,14 +169,14 @@ describe("Authentication", () => {
     expect(c.lastBody.error.message).toBe("Invalid email or password.");
   });
 
-  test("PENDING officer cannot authenticate", async () => {
+  t("PENDING officer cannot authenticate", async () => {
     const c = new Client();
     await c.login("kavya.rao@demo.gov.in");
     expect(c.lastStatus).toBe(401);
     expect(c.code()).toBe("ACCOUNT_INACTIVE");
   });
 
-  test("protected endpoint without authentication → 401", async () => {
+  t("protected endpoint without authentication → 401", async () => {
     await anon.get("/api/v1/auth/me");
     expect(anon.lastStatus).toBe(401);
     await anon.get("/api/v1/departments");
@@ -182,7 +185,7 @@ describe("Authentication", () => {
     expect(anon.lastStatus).toBe(401);
   });
 
-  test("logout revokes the server-side session", async () => {
+  t("logout revokes the server-side session", async () => {
     const c = new Client();
     await c.login("vishnu.kumar@demo.gov.in");
     await c.get("/api/v1/auth/me");
@@ -193,7 +196,7 @@ describe("Authentication", () => {
     expect(c.lastStatus).toBe(401);
   });
 
-  test("expired session → 401 SESSION_EXPIRED", async () => {
+  t("expired session → 401 SESSION_EXPIRED", async () => {
     const c = new Client();
     await c.login("vishnu.kumar@demo.gov.in");
     await c.get("/api/v1/auth/me");
@@ -208,7 +211,7 @@ describe("Authentication", () => {
     expect(c.code()).toBe("SESSION_EXPIRED");
   });
 
-  test("login rate limiting → 429 after repeated failures", async () => {
+  t("login rate limiting → 429 after repeated failures", async () => {
     const email = `ratelimit.probe.${Date.now()}@demo.gov.in`;
     const c = new Client(false); // NO bypass — must exercise the real limiter
     let saw429 = false;
@@ -226,29 +229,29 @@ describe("Authentication", () => {
 // ============================================================
 
 describe("Geography", () => {
-  test("valid state → districts", async () => {
+  t("valid state → districts", async () => {
     await sys.get(`/api/v1/geography/states/${ids.mpId}/districts`);
     expect(sys.lastStatus).toBe(200);
     expect(sys.data().some((d: any) => d.code === "IND")).toBe(true);
   });
 
-  test("invalid state id → 404", async () => {
+  t("invalid state id → 404", async () => {
     await sys.get("/api/v1/geography/states/does-not-exist/districts");
     expect(sys.lastStatus).toBe(404);
   });
 
-  test("valid district → cities", async () => {
+  t("valid district → cities", async () => {
     await sys.get(`/api/v1/geography/districts/${ids.indoreD}/cities`);
     expect(sys.lastStatus).toBe(200);
     expect(sys.data().some((d: any) => d.code === "IND")).toBe(true);
   });
 
-  test("invalid district id → 404", async () => {
+  t("invalid district id → 404", async () => {
     await sys.get("/api/v1/geography/districts/does-not-exist/cities");
     expect(sys.lastStatus).toBe(404);
   });
 
-  test("unauthenticated geography access → 401", async () => {
+  t("unauthenticated geography access → 401", async () => {
     await anon.get("/api/v1/geography/states");
     expect(anon.lastStatus).toBe(401);
   });
@@ -259,7 +262,7 @@ describe("Geography", () => {
 // ============================================================
 
 describe("Departments", () => {
-  test("SYSTEM_ADMIN creates department (valid hierarchy)", async () => {
+  t("SYSTEM_ADMIN creates department (valid hierarchy)", async () => {
     await sys.post("/api/v1/departments", {
       name: `Test Police Unit ${Date.now()}`,
       departmentType: "POLICE",
@@ -272,7 +275,7 @@ describe("Departments", () => {
     expect(sys.data().status).toBe("PENDING");
   });
 
-  test("generated department codes are unique and sequential", async () => {
+  t("generated department codes are unique and sequential", async () => {
     await sys.post("/api/v1/departments", {
       name: `Code Seq A ${Date.now()}`, departmentType: "POLICE",
       stateId: ids.mpId, districtId: ids.indoreD, cityId: ids.indoreC,
@@ -287,7 +290,7 @@ describe("Departments", () => {
     expect(Number(b.slice(-3))).toBeGreaterThan(Number(a.slice(-3)));
   });
 
-  test("invalid hierarchy: city of another district → 422", async () => {
+  t("invalid hierarchy: city of another district → 422", async () => {
     await sys.post("/api/v1/departments", {
       name: "Forgery Dept", departmentType: "POLICE",
       stateId: ids.mpId, districtId: ids.indoreD, cityId: ids.bhopalC,
@@ -296,7 +299,7 @@ describe("Departments", () => {
     expect(sys.code()).toBe("GEOGRAPHY_HIERARCHY_INVALID");
   });
 
-  test("invalid hierarchy: district of another state → 422", async () => {
+  t("invalid hierarchy: district of another state → 422", async () => {
     await sys.post("/api/v1/departments", {
       name: "Forgery Dept 2", departmentType: "POLICE",
       stateId: ids.mpId, districtId: ids.blrD, cityId: ids.blrC,
@@ -304,7 +307,7 @@ describe("Departments", () => {
     expect(sys.lastStatus).toBe(422);
   });
 
-  test("DEPARTMENT_ADMIN cannot create departments", async () => {
+  t("DEPARTMENT_ADMIN cannot create departments", async () => {
     await adminPolice.post("/api/v1/departments", {
       name: "Rogue Dept", departmentType: "POLICE",
       stateId: ids.mpId, districtId: ids.indoreD, cityId: ids.indoreC,
@@ -312,14 +315,14 @@ describe("Departments", () => {
     expect(adminPolice.lastStatus).toBe(403);
   });
 
-  test("DEPARTMENT_ADMIN updates own department — allowed", async () => {
+  t("DEPARTMENT_ADMIN updates own department — allowed", async () => {
     await adminPolice.patch(`/api/v1/departments/${ids.policeDept}`, {
       description: `Updated by own admin at ${Date.now()}`,
     });
     expect(adminPolice.lastStatus).toBe(200);
   });
 
-  test("DEPARTMENT_ADMIN modifying ANOTHER department → 403", async () => {
+  t("DEPARTMENT_ADMIN modifying ANOTHER department → 403", async () => {
     await adminPolice.patch(`/api/v1/departments/${ids.fslDept}`, {
       description: "hostile update",
     });
@@ -327,39 +330,39 @@ describe("Departments", () => {
     expect(adminPolice.code()).toBe("FORBIDDEN");
   });
 
-  test("OFFICER cannot modify department", async () => {
+  t("OFFICER cannot modify department", async () => {
     await officerPolice.patch(`/api/v1/departments/${ids.policeDept}`, {
       description: "officer hostile update",
     });
     expect(officerPolice.lastStatus).toBe(403);
   });
 
-  test("AUDITOR cannot modify anything", async () => {
+  t("AUDITOR cannot modify anything", async () => {
     await auditor.patch(`/api/v1/departments/${ids.policeDept}`, { description: "audit write" });
     expect(auditor.lastStatus).toBe(403);
     await auditor.patch(`/api/v1/departments/${ids.policeDept}/status`, { status: "INACTIVE" });
     expect(auditor.lastStatus).toBe(403);
   });
 
-  test("AUDITOR can read department directory", async () => {
+  t("AUDITOR can read department directory", async () => {
     await auditor.get("/api/v1/departments?page=1&pageSize=5");
     expect(auditor.lastStatus).toBe(200);
     expect(Array.isArray(auditor.data().items)).toBe(true);
   });
 
-  test("directory search & filters work", async () => {
+  t("directory search & filters work", async () => {
     await sys.get("/api/v1/departments?search=Indore Police&departmentType=POLICE&status=ACTIVE");
     expect(sys.lastStatus).toBe(200);
     expect(sys.data().total).toBeGreaterThanOrEqual(1);
     expect(sys.data().items.every((d: any) => d.departmentType === "POLICE")).toBe(true);
   });
 
-  test("OFFICER can view own department profile", async () => {
+  t("OFFICER can view own department profile", async () => {
     await officerPolice.get(`/api/v1/departments/${ids.policeDept}`);
     expect(officerPolice.lastStatus).toBe(200);
   });
 
-  test("OFFICER cannot view another department profile", async () => {
+  t("OFFICER cannot view another department profile", async () => {
     await officerPolice.get(`/api/v1/departments/${ids.fslDept}`);
     expect(officerPolice.lastStatus).toBe(403);
   });
@@ -370,7 +373,7 @@ describe("Departments", () => {
 // ============================================================
 
 describe("Department logo security", () => {
-  test("valid PNG upload works and file is served", async () => {
+  t("valid PNG upload works and file is served", async () => {
     const form = new FormData();
     form.append("logo", new File([await validPngBuffer()], "innocent-name.png", { type: "image/png" }));
     await adminPolice.req("POST", `/api/v1/departments/${ids.policeDept}/logo`, form);
@@ -383,7 +386,7 @@ describe("Department logo security", () => {
     expect(res.headers.get("content-type")).toBe("image/png");
   }, 20000);
 
-  test("malicious content with image extension → 415", async () => {
+  t("malicious content with image extension → 415", async () => {
     const form = new FormData();
     form.append("logo", new File([Buffer.from("<?php evil(); ?>")], "evil.png", { type: "image/png" }));
     await adminPolice.req("POST", `/api/v1/departments/${ids.policeDept}/logo`, form);
@@ -391,7 +394,7 @@ describe("Department logo security", () => {
     expect(adminPolice.code()).toBe("UNSUPPORTED_MEDIA_TYPE");
   });
 
-  test("oversized upload → 413", async () => {
+  t("oversized upload → 413", async () => {
     const big = Buffer.alloc(3 * 1024 * 1024, 0x89);
     const form = new FormData();
     form.append("logo", new File([big], "big.png", { type: "image/png" }));
@@ -399,28 +402,28 @@ describe("Department logo security", () => {
     expect(adminPolice.lastStatus).toBe(413);
   });
 
-  test("path traversal via file id → 404", async () => {
+  t("path traversal via file id → 404", async () => {
     const res = await fetch(`${BASE}/api/v1/files/logos/..%2F..%2Fschema.prisma`, { signal: AbortSignal.timeout(15000) });
     expect(res.status).toBe(404);
     const res2 = await fetch(`${BASE}/api/v1/files/logos/not-a-uuid.png`, { signal: AbortSignal.timeout(15000) });
     expect(res2.status).toBe(404);
   }, 20000);
 
-  test("unauthenticated logo upload → 401", async () => {
+  t("unauthenticated logo upload → 401", async () => {
     const form = new FormData();
     form.append("logo", new File([await validPngBuffer()], "x.png", { type: "image/png" }));
     await anon.req("POST", `/api/v1/departments/${ids.policeDept}/logo`, form);
     expect(anon.lastStatus).toBe(401);
   });
 
-  test("officer (non-admin) cannot upload logo → 403", async () => {
+  t("officer (non-admin) cannot upload logo → 403", async () => {
     const form = new FormData();
     form.append("logo", new File([await validPngBuffer()], "x.png", { type: "image/png" }));
     await officerPolice.req("POST", `/api/v1/departments/${ids.policeDept}/logo`, form);
     expect(officerPolice.lastStatus).toBe(403);
   });
 
-  test("undersized PNG (below 32px) → 422", async () => {
+  t("undersized PNG (below 32px) → 422", async () => {
     const form = new FormData();
     form.append("logo", new File([pngBuffer()], "tiny.png", { type: "image/png" }));
     await adminPolice.req("POST", `/api/v1/departments/${ids.policeDept}/logo`, form);
@@ -436,7 +439,7 @@ describe("Officers", () => {
   let createdOfficerId: string;
   const email = `new.officer.${Date.now()}@demo.gov.in`;
 
-  test("DEPARTMENT_ADMIN registers officer in own department", async () => {
+  t("DEPARTMENT_ADMIN registers officer in own department", async () => {
     await adminPolice.post(`/api/v1/departments/${ids.policeDept}/officers`, {
       name: "New Test Officer",
       email,
@@ -452,13 +455,13 @@ describe("Officers", () => {
     expect(adminPolice.data().status).toBe("ACTIVE");
   });
 
-  test("new officer can log in immediately", async () => {
+  t("new officer can log in immediately", async () => {
     const c = new Client();
     await c.login(email, "Test@Pass1");
     expect(c.lastStatus).toBe(200);
   });
 
-  test("duplicate email → 409 CONFLICT", async () => {
+  t("duplicate email → 409 CONFLICT", async () => {
     await adminPolice.post(`/api/v1/departments/${ids.policeDept}/officers`, {
       name: "Duplicate Officer",
       email,
@@ -469,7 +472,7 @@ describe("Officers", () => {
     expect(adminPolice.lastStatus).toBe(409);
   });
 
-  test("DEPARTMENT_ADMIN cannot create officers in another department", async () => {
+  t("DEPARTMENT_ADMIN cannot create officers in another department", async () => {
     await adminPolice.post(`/api/v1/departments/${ids.fslDept}/officers`, {
       name: "Cross Dept Officer",
       email: `cross.${Date.now()}@demo.gov.in`,
@@ -480,7 +483,7 @@ describe("Officers", () => {
     expect(adminPolice.lastStatus).toBe(403);
   });
 
-  test("DEPARTMENT_ADMIN cannot assign SYSTEM_ADMIN role", async () => {
+  t("DEPARTMENT_ADMIN cannot assign SYSTEM_ADMIN role", async () => {
     await adminPolice.post(`/api/v1/departments/${ids.policeDept}/officers`, {
       name: "Escalation Attempt",
       email: `escalation.${Date.now()}@demo.gov.in`,
@@ -491,14 +494,14 @@ describe("Officers", () => {
     expect(adminPolice.lastStatus).toBe(403);
   });
 
-  test("forged role in profile update is ignored (no privilege escalation)", async () => {
+  t("forged role in profile update is ignored (no privilege escalation)", async () => {
     await officerPolice.patch("/api/v1/profile", { phone: "+91-9111111111", role: "SYSTEM_ADMIN" });
     expect(officerPolice.lastStatus).toBe(200);
     await officerPolice.get("/api/v1/profile");
     expect(officerPolice.data().role).toBe("OFFICER");
   });
 
-  test("password change: works, authenticates, rejects wrong current password", async () => {
+  t("password change: works, authenticates, rejects wrong current password", async () => {
     // dedicated account so the demo credentials are untouched
     const email = `pwd.change.${Date.now()}@demo.gov.in`;
     await adminPolice.post(`/api/v1/departments/${ids.policeDept}/officers`, {
@@ -527,14 +530,14 @@ describe("Officers", () => {
     expect(reLogin.lastStatus).toBe(200);
   });
 
-  test("officer of another department cannot view officer profile", async () => {
+  t("officer of another department cannot view officer profile", async () => {
     await adminFsl.get(`/api/v1/departments/${ids.fslDept}/officers`);
     const fslOfficer = adminFsl.data().items[0];
     await officerPolice.get(`/api/v1/officers/${fslOfficer.id}`);
     expect(officerPolice.lastStatus).toBe(403);
   });
 
-  test("status lifecycle: ACTIVE → SUSPENDED blocks login; transitions enforced", async () => {
+  t("status lifecycle: ACTIVE → SUSPENDED blocks login; transitions enforced", async () => {
     await adminPolice.patch(`/api/v1/officers/${createdOfficerId}/status`, { status: "SUSPENDED" });
     expect(adminPolice.lastStatus).toBe(200);
     const c = new Client();
@@ -556,7 +559,7 @@ describe("Officers", () => {
     expect(c2.lastStatus).toBe(200);
   });
 
-  test("suspension revokes live sessions immediately", async () => {
+  t("suspension revokes live sessions immediately", async () => {
     const target = new Client();
     await target.login(email, "Test@Pass1");
     expect(target.lastStatus).toBe(200);
@@ -566,7 +569,7 @@ describe("Officers", () => {
     await adminPolice.patch(`/api/v1/officers/${createdOfficerId}/status`, { status: "ACTIVE" });
   });
 
-  test("OFFICER cannot modify other officers", async () => {
+  t("OFFICER cannot modify other officers", async () => {
     await officerPolice.patch(`/api/v1/officers/${createdOfficerId}`, { designation: "Hacked" });
     expect(officerPolice.lastStatus).toBe(403);
   });
@@ -577,14 +580,14 @@ describe("Officers", () => {
 // ============================================================
 
 describe("Authorization matrix", () => {
-  test("SYSTEM_ADMIN can manage department status", async () => {
+  t("SYSTEM_ADMIN can manage department status", async () => {
     await sys.patch(`/api/v1/departments/${ids.otherDeptId}/status`, { status: "INACTIVE" });
     expect(sys.lastStatus).toBe(200);
     await sys.patch(`/api/v1/departments/${ids.otherDeptId}/status`, { status: "ACTIVE" });
     expect(sys.lastStatus).toBe(200);
   });
 
-  test("AUDITOR can read platform stats and events but not write", async () => {
+  t("AUDITOR can read platform stats and events but not write", async () => {
     await auditor.get("/api/v1/admin/stats");
     expect(auditor.lastStatus).toBe(200);
     await auditor.get("/api/v1/admin/events?page=1&pageSize=5");
@@ -596,22 +599,22 @@ describe("Authorization matrix", () => {
     expect(auditor.lastStatus).toBe(403);
   });
 
-  test("OFFICER cannot read platform stats", async () => {
+  t("OFFICER cannot read platform stats", async () => {
     await officerPolice.get("/api/v1/admin/stats");
     expect(officerPolice.lastStatus).toBe(403);
   });
 
-  test("DEPARTMENT_ADMIN cannot add geography units", async () => {
+  t("DEPARTMENT_ADMIN cannot add geography units", async () => {
     await adminPolice.post("/api/v1/geography/states", { countryId: ids.indiaId, name: "Rogue State", code: "RS" });
     expect(adminPolice.lastStatus).toBe(403);
   });
 
-  test("SYSTEM_ADMIN can add geography units", async () => {
+  t("SYSTEM_ADMIN can add geography units", async () => {
     await sys.post("/api/v1/geography/states", { countryId: ids.indiaId, name: `Test State ${Date.now() % 100000}`, code: `T${Date.now() % 1000000}`.slice(0, 6) });
     expect(sys.lastStatus).toBe(201);
   });
 
-  test("forged officer/department ids in request body are ignored", async () => {
+  t("forged officer/department ids in request body are ignored", async () => {
     await adminFsl.patch("/api/v1/profile", { phone: "+91-9222222222", departmentId: ids.policeDept, officerId: "OFF-MP-IND-99999" });
     expect(adminFsl.lastStatus).toBe(200);
     await adminFsl.get("/api/v1/profile");
@@ -624,7 +627,7 @@ describe("Authorization matrix", () => {
 // ============================================================
 
 describe("Identity events", () => {
-  test("login/logout/failures generate structured events", async () => {
+  t("login/logout/failures generate structured events", async () => {
     const c = new Client();
     await c.login("vishnu.kumar@demo.gov.in");
     await c.post("/api/v1/auth/logout");

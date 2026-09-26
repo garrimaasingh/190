@@ -9,6 +9,9 @@
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { PrismaClient } from "@prisma/client";
 
+function t(name: string, fn: () => Promise<unknown> | unknown) {
+  return test(name, fn, 60000); // runbook: generous timeout — AI drain can block the event loop
+}
 const BASE = "http://localhost:3000";
 const db = new PrismaClient();
 const SEED_PASSWORD = process.env.SEED_PASSWORD || "Demo@Pass1";
@@ -129,7 +132,7 @@ afterAll(async () => {
 // 1. CASE CREATION (spec §54)
 // ============================================================
 describe("Case creation", () => {
-  test("DEPARTMENT_ADMIN creates a valid case; ID is system-generated", async () => {
+  t("DEPARTMENT_ADMIN creates a valid case; ID is system-generated", async () => {
     const res = await createCase(adminPolice, {
       title: `Valid Creation Test ${stamp}`,
       caseNumber: `TST/${stamp}/1`,
@@ -144,18 +147,18 @@ describe("Case creation", () => {
     expect(d.currentCustodianDepartment.id).toBe(deptIds.police);
   });
 
-  test("caseNumber and caseId are distinct concepts", async () => {
+  t("caseNumber and caseId are distinct concepts", async () => {
     const res = await createCase(adminPolice, { caseNumber: `FIR-DEMO/${stamp}` });
     expect(res.status).toBe(201);
     expect(adminPolice.data().caseId).not.toBe(adminPolice.data().caseNumber);
   });
 
-  test("case without official number is allowed", async () => {
+  t("case without official number is allowed", async () => {
     const res = await createCase(adminPolice);
     expect(res.status).toBe(201);
   });
 
-  test("duplicate official case number within originating department → 409", async () => {
+  t("duplicate official case number within originating department → 409", async () => {
     const num = `DUP/${stamp}`;
     await createCase(adminPolice, { caseNumber: num });
     const res = await createCase(adminPolice, { caseNumber: num });
@@ -163,7 +166,7 @@ describe("Case creation", () => {
     expect(adminPolice.code()).toBe("CONFLICT");
   });
 
-  test("mismatched geography (city from another district) → 422", async () => {
+  t("mismatched geography (city from another district) → 422", async () => {
     await sys.get("/api/v1/geography/countries");
     const india = sys.data().find((x: any) => x.code === "IN");
     await sys.get(`/api/v1/geography/states?countryId=${india.id}`);
@@ -177,33 +180,33 @@ describe("Case creation", () => {
     expect(adminPolice.code()).toBe("GEOGRAPHY_HIERARCHY_INVALID");
   });
 
-  test("invalid case type → 422", async () => {
+  t("invalid case type → 422", async () => {
     const res = await createCase(adminPolice, { caseType: "TERRORISM" });
     expect(res.status).toBe(422);
     expect(adminPolice.code()).toBe("VALIDATION_ERROR");
   });
 
-  test("invalid priority → 422", async () => {
+  t("invalid priority → 422", async () => {
     const res = await createCase(adminPolice, { priority: "URGENT" });
     expect(res.status).toBe(422);
   });
 
-  test("missing title → 422", async () => {
+  t("missing title → 422", async () => {
     const res = await createCase(adminPolice, { title: "" });
     expect(res.status).toBe(422);
   });
 
-  test("AUDITOR cannot create cases → 403", async () => {
+  t("AUDITOR cannot create cases → 403", async () => {
     const res = await createCase(auditor);
     expect(res.status).toBe(403);
   });
 
-  test("unauthenticated creation → 401", async () => {
+  t("unauthenticated creation → 401", async () => {
     const res = await createCase(anon);
     expect(res.status).toBe(401);
   });
 
-  test("forged department/creator/status fields are ignored", async () => {
+  t("forged department/creator/status fields are ignored", async () => {
     const res = await adminPolice.post("/api/v1/cases", {
       title: `Forged Fields Test ${stamp}`,
       caseType: "CRIMINAL",
@@ -224,7 +227,7 @@ describe("Case creation", () => {
     expect(d.caseId).not.toBe("CASE-XX-XX-9999-999999"); // server-generated
   });
 
-  test("OFFICER role can create a case (authorized officer)", async () => {
+  t("OFFICER role can create a case (authorized officer)", async () => {
     const res = await createCase(officerPolice, { title: `Officer Created Case ${stamp}` });
     expect(res.status).toBe(201);
     expect(officerPolice.data().createdByOfficer.name).toBe("Vishnu Kumar");
@@ -243,43 +246,43 @@ describe("Case authorization", () => {
     expect(res.status).toBe(201);
   }, 60000);
 
-  test("SYSTEM_ADMIN can view and manage any case", async () => {
+  t("SYSTEM_ADMIN can view and manage any case", async () => {
     await sys.get(`/api/v1/cases/${caseId}`);
     expect(sys.lastStatus).toBe(200);
     expect(sys.data().viewer.manage).toBe(true);
   });
 
-  test("AUDITOR has read-only visibility", async () => {
+  t("AUDITOR has read-only visibility", async () => {
     await auditor.get(`/api/v1/cases/${caseId}`);
     expect(auditor.lastStatus).toBe(200);
     expect(auditor.data().viewer.view).toBe(true);
     expect(auditor.data().viewer.manage).toBe(false);
   });
 
-  test("unassigned officer of custodian dept can view but not manage", async () => {
+  t("unassigned officer of custodian dept can view but not manage", async () => {
     await officerPolice.get(`/api/v1/cases/${caseId}`);
     expect(officerPolice.lastStatus).toBe(200);
     expect(officerPolice.data().viewer.view).toBe(true);
     expect(officerPolice.data().viewer.manage).toBe(false);
   });
 
-  test("officer from unrelated department (Bhopal) cannot access → 403", async () => {
+  t("officer from unrelated department (Bhopal) cannot access → 403", async () => {
     await adminBhopal.get(`/api/v1/cases/${caseId}`);
     expect(adminBhopal.lastStatus).toBe(403);
     expect(adminBhopal.code()).toBe("CASE_ACCESS_DENIED");
   });
 
-  test("unauthenticated case access → 401", async () => {
+  t("unauthenticated case access → 401", async () => {
     await anon.get(`/api/v1/cases/${caseId}`);
     expect(anon.lastStatus).toBe(401);
   });
 
-  test("forged case id → 404", async () => {
+  t("forged case id → 404", async () => {
     await adminPolice.get("/api/v1/cases/CASE-XX-NOPE-2099-000001");
     expect(adminPolice.lastStatus).toBe(404);
   });
 
-  test("access explanation endpoint reflects viewer position", async () => {
+  t("access explanation endpoint reflects viewer position", async () => {
     await adminPolice.get(`/api/v1/cases/${caseId}/access`);
     expect(adminPolice.lastStatus).toBe(200);
     expect(adminPolice.data().isCustodianSide).toBe(true);
@@ -287,7 +290,7 @@ describe("Case authorization", () => {
     expect(adminBhopal.lastStatus).toBe(403);
   });
 
-  test("search does not leak unauthorized cases (spec §50)", async () => {
+  t("search does not leak unauthorized cases (spec §50)", async () => {
     // Bhopal admin has no participation → must not see the case
     await adminBhopal.get(`/api/v1/cases?search=${encodeURIComponent("Auth Matrix Case")}`);
     expect(adminBhopal.lastStatus).toBe(200);
@@ -311,29 +314,29 @@ describe("Case status lifecycle", () => {
     caseId = adminPolice.data().caseId;
   }, 60000);
 
-  test("valid transition OPEN → UNDER_INVESTIGATION", async () => {
+  t("valid transition OPEN → UNDER_INVESTIGATION", async () => {
     const res = await adminPolice.patch(`/api/v1/cases/${caseId}/status`, { status: "UNDER_INVESTIGATION" });
     expect(res.status).toBe(200);
     expect(adminPolice.data().status).toBe("UNDER_INVESTIGATION");
   });
 
-  test("invalid transition UNDER_INVESTIGATION → ARCHIVED → 409", async () => {
+  t("invalid transition UNDER_INVESTIGATION → ARCHIVED → 409", async () => {
     const res = await adminPolice.patch(`/api/v1/cases/${caseId}/status`, { status: "ARCHIVED" });
     expect(res.status).toBe(409);
     expect(adminPolice.code()).toBe("INVALID_STATUS_TRANSITION");
   });
 
-  test("unauthorized transition (officer without assignment) → 403", async () => {
+  t("unauthorized transition (officer without assignment) → 403", async () => {
     const res = await officerPolice.patch(`/api/v1/cases/${caseId}/status`, { status: "PENDING_FORENSICS" });
     expect(res.status).toBe(403);
   });
 
-  test("auditor cannot change status → 403", async () => {
+  t("auditor cannot change status → 403", async () => {
     const res = await auditor.patch(`/api/v1/cases/${caseId}/status`, { status: "CLOSED" });
     expect(res.status).toBe(403);
   });
 
-  test("closed case cannot be modified (metadata PATCH) → 409", async () => {
+  t("closed case cannot be modified (metadata PATCH) → 409", async () => {
     await adminPolice.patch(`/api/v1/cases/${caseId}/status`, { status: "CLOSED" });
     expect(adminPolice.lastStatus).toBe(200);
     const res = await adminPolice.patch(`/api/v1/cases/${caseId}`, { title: "Should Fail" });
@@ -349,7 +352,7 @@ describe("Case status lifecycle", () => {
     expect(adminPolice.lastStatus).toBe(409);
   });
 
-  test("case metadata update works while mutable", async () => {
+  t("case metadata update works while mutable", async () => {
     const res = await adminPolice.patch(`/api/v1/cases/${caseId}`, { priority: "CRITICAL", description: "updated" });
     expect(res.status).toBe(409); // archived in prior test → immutable
     const res2 = await createCase(adminPolice, { title: `Mutable Update Case ${stamp}` });
@@ -360,7 +363,7 @@ describe("Case status lifecycle", () => {
     void res; void res2;
   });
 
-  test("mass assignment via PATCH is ignored (status/custodian)", async () => {
+  t("mass assignment via PATCH is ignored (status/custodian)", async () => {
     await createCase(adminPolice, { title: `Mass Assign Case ${stamp}` });
     const id = adminPolice.data().caseId;
     await adminPolice.patch(`/api/v1/cases/${id}`, {
@@ -391,7 +394,7 @@ describe("Case officers", () => {
     });
   }, 60000);
 
-  test("assign a valid officer of a participating department", async () => {
+  t("assign a valid officer of a participating department", async () => {
     const res = await adminPolice.post(`/api/v1/cases/${caseId}/officers`, {
       officerId: "OFF-MP-IND-00004", // Vishnu (Police)
       roleOnCase: "LEAD_INVESTIGATOR",
@@ -399,7 +402,7 @@ describe("Case officers", () => {
     expect(res.status).toBe(201);
   });
 
-  test("duplicate assignment → 409", async () => {
+  t("duplicate assignment → 409", async () => {
     const res = await adminPolice.post(`/api/v1/cases/${caseId}/officers`, {
       officerId: "OFF-MP-IND-00004",
       roleOnCase: "SUPPORT_OFFICER",
@@ -407,7 +410,7 @@ describe("Case officers", () => {
     expect(res.status).toBe(409);
   });
 
-  test("assign inactive officer → 422 (Kavya is PENDING)", async () => {
+  t("assign inactive officer → 422 (Kavya is PENDING)", async () => {
     const res = await adminPolice.post(`/api/v1/cases/${caseId}/officers`, {
       officerId: "OFF-MP-IND-00005",
       roleOnCase: "SUPPORT_OFFICER",
@@ -416,7 +419,7 @@ describe("Case officers", () => {
     expect(adminPolice.code()).toBe("OFFICER_INELIGIBLE");
   });
 
-  test("assign nonexistent officer → 404", async () => {
+  t("assign nonexistent officer → 404", async () => {
     const res = await adminPolice.post(`/api/v1/cases/${caseId}/officers`, {
       officerId: "OFF-XX-XX-99999",
       roleOnCase: "SUPPORT_OFFICER",
@@ -424,7 +427,7 @@ describe("Case officers", () => {
     expect(res.status).toBe(404);
   });
 
-  test("assign officer whose department is not a participant → 422", async () => {
+  t("assign officer whose department is not a participant → 422", async () => {
     // Bhopal officer (Devika) — Bhopal Police does not participate
     const res = await adminPolice.post(`/api/v1/cases/${caseId}/officers`, {
       officerId: "OFF-MP-BHO-00006",
@@ -433,7 +436,7 @@ describe("Case officers", () => {
     expect(res.status).toBe(422);
   });
 
-  test("unauthorized assignment (officer without manage) → 403", async () => {
+  t("unauthorized assignment (officer without manage) → 403", async () => {
     // Fresh case where the officer has NO assignment yet — custodian-side
     // officers only manage cases they are explicitly assigned to.
     await createCase(adminPolice, { title: `Unauth Assign Case ${stamp}` });
@@ -445,7 +448,7 @@ describe("Case officers", () => {
     expect(res.status).toBe(403);
   });
 
-  test("auditor cannot assign → 403", async () => {
+  t("auditor cannot assign → 403", async () => {
     const res = await auditor.post(`/api/v1/cases/${caseId}/officers`, {
       officerId: "OFF-MP-IND-00004",
       roleOnCase: "REVIEWER",
@@ -453,7 +456,7 @@ describe("Case officers", () => {
     expect(res.status).toBe(403);
   });
 
-  test("eligible-officers endpoint: participant dept works, non-participant rejected", async () => {
+  t("eligible-officers endpoint: participant dept works, non-participant rejected", async () => {
     await adminPolice.get(`/api/v1/cases/${caseId}/eligible-officers?departmentId=${deptIds.fsl}&purpose=assign`);
     expect(adminPolice.lastStatus).toBe(200);
     expect(adminPolice.data().items.length).toBeGreaterThan(0);
@@ -461,7 +464,7 @@ describe("Case officers", () => {
     expect(adminPolice.lastStatus).toBe(422);
   });
 
-  test("change case role", async () => {
+  t("change case role", async () => {
     await adminPolice.get(`/api/v1/cases/${caseId}/officers`);
     const record = adminPolice.data().items.find((o: any) => o.officer.officerId === "OFF-MP-IND-00004");
     const res = await adminPolice.patch(`/api/v1/cases/${caseId}/officers/${record.id}`, { roleOnCase: "INVESTIGATING_OFFICER" });
@@ -471,7 +474,7 @@ describe("Case officers", () => {
     expect(after.roleOnCase).toBe("INVESTIGATING_OFFICER");
   });
 
-  test("unassign officer — record retained as REMOVED", async () => {
+  t("unassign officer — record retained as REMOVED", async () => {
     await adminPolice.get(`/api/v1/cases/${caseId}/officers`);
     const record = adminPolice.data().items.find((o: any) => o.officer.officerId === "OFF-MP-IND-00004");
     const res = await adminPolice.del(`/api/v1/cases/${caseId}/officers/${record.id}`);
@@ -494,7 +497,7 @@ describe("Case departments", () => {
     caseId = adminPolice.data().caseId;
   }, 60000);
 
-  test("add valid participating department", async () => {
+  t("add valid participating department", async () => {
     const res = await adminPolice.post(`/api/v1/cases/${caseId}/departments`, {
       departmentId: deptIds.fsl,
       participationType: "PARTICIPATING",
@@ -502,40 +505,40 @@ describe("Case departments", () => {
     expect(res.status).toBe(201);
   });
 
-  test("duplicate department → 409", async () => {
+  t("duplicate department → 409", async () => {
     const res = await adminPolice.post(`/api/v1/cases/${caseId}/departments`, {
       departmentId: deptIds.fsl,
     });
     expect(res.status).toBe(409);
   });
 
-  test("nonexistent department → 404", async () => {
+  t("nonexistent department → 404", async () => {
     const res = await adminPolice.post(`/api/v1/cases/${caseId}/departments`, {
       departmentId: "nonexistent-dept-id",
     });
     expect(res.status).toBe(404);
   });
 
-  test("unauthorized addition (officer without manage) → 403", async () => {
+  t("unauthorized addition (officer without manage) → 403", async () => {
     const res = await officerPolice.post(`/api/v1/cases/${caseId}/departments`, {
       departmentId: deptIds.prosecution,
     });
     expect(res.status).toBe(403);
   });
 
-  test("originating department and current custodian cannot be removed", async () => {
+  t("originating department and current custodian cannot be removed", async () => {
     const res = await adminPolice.del(`/api/v1/cases/${caseId}/departments/${deptIds.police}`);
     expect(res.status).toBe(409);
   });
 
-  test("remove participating department → removed; re-add works", async () => {
+  t("remove participating department → removed; re-add works", async () => {
     const res = await adminPolice.del(`/api/v1/cases/${caseId}/departments/${deptIds.fsl}`);
     expect(res.status).toBe(200);
     const re = await adminPolice.post(`/api/v1/cases/${caseId}/departments`, { departmentId: deptIds.fsl });
     expect(re.status).toBe(201);
   });
 
-  test("custody cannot be set by adding a department — only via transfer", async () => {
+  t("custody cannot be set by adding a department — only via transfer", async () => {
     // adding a department must NOT change the custodian
     await adminPolice.post(`/api/v1/cases/${caseId}/departments`, { departmentId: deptIds.prosecution });
     await adminPolice.get(`/api/v1/cases/${caseId}`);
@@ -554,7 +557,7 @@ describe("Custody transfers", () => {
     caseId = adminPolice.data().caseId;
   }, 60000);
 
-  test("non-custodian cannot initiate transfer → 403", async () => {
+  t("non-custodian cannot initiate transfer → 403", async () => {
     const res = await adminFsl.post(`/api/v1/cases/${caseId}/transfers`, {
       toDepartmentId: deptIds.fsl,
       reason: "Hostile takeover attempt",
@@ -562,7 +565,7 @@ describe("Custody transfers", () => {
     expect(res.status).toBe(403);
   });
 
-  test("self-transfer → 422", async () => {
+  t("self-transfer → 422", async () => {
     const res = await adminPolice.post(`/api/v1/cases/${caseId}/transfers`, {
       toDepartmentId: deptIds.police,
       reason: "Sending to myself",
@@ -571,7 +574,7 @@ describe("Custody transfers", () => {
     expect(adminPolice.code()).toBe("DEPARTMENT_INELIGIBLE");
   });
 
-  test("transfer to nonexistent department → 404", async () => {
+  t("transfer to nonexistent department → 404", async () => {
     const res = await adminPolice.post(`/api/v1/cases/${caseId}/transfers`, {
       toDepartmentId: "no-such-dept",
       reason: "Test",
@@ -579,7 +582,7 @@ describe("Custody transfers", () => {
     expect(res.status).toBe(404);
   });
 
-  test("transfer with receiving officer from another department → 422", async () => {
+  t("transfer with receiving officer from another department → 422", async () => {
     // Vishnu (Police) as receiving officer for FSL destination
     const res = await adminPolice.post(`/api/v1/cases/${caseId}/transfers`, {
       toDepartmentId: deptIds.fsl,
@@ -590,7 +593,7 @@ describe("Custody transfers", () => {
     expect(adminPolice.code()).toBe("OFFICER_INELIGIBLE");
   });
 
-  test("valid transfer request → REQUESTED with immutable TRF id", async () => {
+  t("valid transfer request → REQUESTED with immutable TRF id", async () => {
     const res = await adminPolice.post(`/api/v1/cases/${caseId}/transfers`, {
       toDepartmentId: deptIds.fsl,
       toOfficerId: "OFF-MP-IND-00002",
@@ -601,7 +604,7 @@ describe("Custody transfers", () => {
     expect(adminPolice.data().status).toBe("REQUESTED");
   });
 
-  test("second transfer while one is pending → 409 TRANSFER_ALREADY_PENDING", async () => {
+  t("second transfer while one is pending → 409 TRANSFER_ALREADY_PENDING", async () => {
     const res = await adminPolice.post(`/api/v1/cases/${caseId}/transfers`, {
       toDepartmentId: deptIds.prosecution,
       reason: "Simultaneous attempt",
@@ -610,39 +613,39 @@ describe("Custody transfers", () => {
     expect(adminPolice.code()).toBe("TRANSFER_ALREADY_PENDING");
   });
 
-  test("custody unchanged while transfer is REQUESTED", async () => {
+  t("custody unchanged while transfer is REQUESTED", async () => {
     await adminPolice.get(`/api/v1/cases/${caseId}`);
     expect(adminPolice.data().currentCustodianDepartment.id).toBe(deptIds.police);
   });
 
-  test("non-receiving department cannot accept → 403", async () => {
+  t("non-receiving department cannot accept → 403", async () => {
     await adminPolice.get(`/api/v1/cases/${caseId}/transfers`);
     const trf = adminPolice.data().items[0].transferId;
     const res = await adminBhopal.post(`/api/v1/cases/${caseId}/transfers/${trf}/accept`);
     expect(res.status).toBe(403);
   });
 
-  test("requesting side cannot accept its own transfer → 403", async () => {
+  t("requesting side cannot accept its own transfer → 403", async () => {
     await adminPolice.get(`/api/v1/cases/${caseId}/transfers`);
     const trf = adminPolice.data().items[0].transferId;
     const res = await adminPolice.post(`/api/v1/cases/${caseId}/transfers/${trf}/accept`);
     expect(res.status).toBe(403);
   });
 
-  test("receiving officer views the case before acceptance (destination-side review)", async () => {
+  t("receiving officer views the case before acceptance (destination-side review)", async () => {
     await adminFsl.get(`/api/v1/cases/${caseId}`);
     expect(adminFsl.lastStatus).toBe(200);
     expect(adminFsl.data().viewer.view).toBe(true);
   });
 
-  test("incoming mailbox lists the pending transfer for FSL", async () => {
+  t("incoming mailbox lists the pending transfer for FSL", async () => {
     await adminFsl.get("/api/v1/transfers/incoming");
     expect(adminFsl.lastStatus).toBe(200);
     const found = (adminFsl.data().items || []).some((t: any) => t.case.caseId === caseId);
     expect(found).toBe(true);
   });
 
-  test("ACCEPT changes custody; police becomes historical/origin", async () => {
+  t("ACCEPT changes custody; police becomes historical/origin", async () => {
     await adminFsl.get(`/api/v1/cases/${caseId}/transfers`);
     const trf = adminFsl.data().items[0].transferId;
     const res = await adminFsl.post(`/api/v1/cases/${caseId}/transfers/${trf}/accept`);
@@ -655,7 +658,7 @@ describe("Custody transfers", () => {
     expect(origin.department.id).toBe(deptIds.police);
   });
 
-  test("accepting the same transfer twice → 409 INVALID_TRANSFER_STATE", async () => {
+  t("accepting the same transfer twice → 409 INVALID_TRANSFER_STATE", async () => {
     await adminFsl.get(`/api/v1/cases/${caseId}/transfers`);
     const trf = adminFsl.data().items[0].transferId;
     const res = await adminFsl.post(`/api/v1/cases/${caseId}/transfers/${trf}/accept`);
@@ -663,7 +666,7 @@ describe("Custody transfers", () => {
     expect(adminFsl.code()).toBe("INVALID_TRANSFER_STATE");
   });
 
-  test("concurrent decisions on the same transfer: exactly one wins", async () => {
+  t("concurrent decisions on the same transfer: exactly one wins", async () => {
     // Fresh case with a pending transfer, then two simultaneous accepts.
     await createCase(adminPolice, { title: `Concurrent Accept Case ${stamp}` });
     const cid = adminPolice.data().caseId;
@@ -681,7 +684,7 @@ describe("Custody transfers", () => {
     expect(statuses).toEqual([200, 409]);
   });
 
-  test("stale transfer fails safely when custody already moved", async () => {
+  t("stale transfer fails safely when custody already moved", async () => {
     // Create a pending transfer while Police is custodian of a new case,
     // cancel nothing — instead simulate: transfer to FSL, then (via a second
     // case) verify accept on a case whose custody changed → stale guard.
@@ -697,7 +700,7 @@ describe("Custody transfers", () => {
     expect(found).toBe(true);
   });
 
-  test("REJECT keeps custody unchanged", async () => {
+  t("REJECT keeps custody unchanged", async () => {
     await createCase(adminPolice, { title: `Reject Case ${stamp}` });
     const cid = adminPolice.data().caseId;
     await adminPolice.post(`/api/v1/cases/${cid}/transfers`, {
@@ -723,7 +726,7 @@ describe("Custody transfers", () => {
     expect(adminPolice.data().status).toBe("CANCELLED");
   });
 
-  test("receiving side cannot cancel (only requester side)", async () => {
+  t("receiving side cannot cancel (only requester side)", async () => {
     await createCase(adminPolice, { title: `Cancel Guard Case ${stamp}` });
     const cid = adminPolice.data().caseId;
     await adminPolice.post(`/api/v1/cases/${cid}/transfers`, {
@@ -735,7 +738,7 @@ describe("Custody transfers", () => {
     expect(res.status).toBe(403);
   });
 
-  test("completed transfer cannot be edited and history cannot be deleted", async () => {
+  t("completed transfer cannot be edited and history cannot be deleted", async () => {
     // custody case (first in this suite) has an ACCEPTED transfer; there is
     // no DELETE endpoint for transfers by design:
     const res = await adminFsl.req("DELETE", `/api/v1/cases/${caseId}/transfers/whatever`);
@@ -760,7 +763,7 @@ describe("History & timeline", () => {
     await adminProsecution.post(`/api/v1/cases/${caseId}/transfers/${adminProsecution.data().items[0].transferId}/accept`);
   }, 60000);
 
-  test("timeline contains the full ordered event chain", async () => {
+  t("timeline contains the full ordered event chain", async () => {
     await adminPolice.get(`/api/v1/cases/${caseId}/timeline`);
     expect(adminPolice.lastStatus).toBe(200);
     const types = adminPolice.data().items.map((e: any) => e.eventType);
@@ -776,7 +779,7 @@ describe("History & timeline", () => {
     expect(times).toEqual(sorted);
   });
 
-  test("custody history preserved with previous custodian retained", async () => {
+  t("custody history preserved with previous custodian retained", async () => {
     await adminPolice.get(`/api/v1/cases/${caseId}/transfers`);
     expect(adminPolice.data().items.length).toBe(1);
     const trf = adminPolice.data().items[0];
@@ -790,7 +793,7 @@ describe("History & timeline", () => {
     expect(policeRow.status ?? "ACTIVE").toBe("ACTIVE");
   });
 
-  test("unauthorized user receives no timeline", async () => {
+  t("unauthorized user receives no timeline", async () => {
     await adminBhopal.get(`/api/v1/cases/${caseId}/timeline`);
     expect(adminBhopal.lastStatus).toBe(403);
   });
@@ -800,12 +803,12 @@ describe("History & timeline", () => {
 // 8. SECURITY TESTING (spec §55)
 // ============================================================
 describe("Security", () => {
-  test("forged JWT/session cookie → 401", async () => {
+  t("forged JWT/session cookie → 401", async () => {
     const res = await anon.req("GET", "/api/v1/cases", undefined, { Cookie: "cp_session=forged.jwt.token" });
     expect(res.status).toBe(401);
   });
 
-  test("expired/revoked session → 401 (revoked session of logged-out client)", async () => {
+  t("expired/revoked session → 401 (revoked session of logged-out client)", async () => {
     const temp = new Client();
     await temp.login("arjun.sharma@demo.gov.in");
     await temp.post("/api/v1/auth/logout");
@@ -813,7 +816,7 @@ describe("Security", () => {
     expect(res.status).toBe(401);
   });
 
-  test("SQL injection attempt in search is safely ignored", async () => {
+  t("SQL injection attempt in search is safely ignored", async () => {
     await adminPolice.get(`/api/v1/cases?search=${encodeURIComponent("'; DROP TABLE Case;--")}`);
     expect(adminPolice.lastStatus).toBe(200);
     // table still functional
@@ -821,7 +824,7 @@ describe("Security", () => {
     expect(adminPolice.lastStatus).toBe(200);
   });
 
-  test("XSS payload in case metadata is stored as inert text", async () => {
+  t("XSS payload in case metadata is stored as inert text", async () => {
     const xss = `<script>alert("x")</script>`;
     const res = await createCase(adminPolice, { title: `XSS Probe ${stamp} ${xss}`.slice(0, 200) });
     expect(res.status).toBe(201);
@@ -830,27 +833,27 @@ describe("Security", () => {
     expect(adminPolice.data().title).toContain(xss); // stored verbatim, escaped at render time
   });
 
-  test("horizontal escalation: forged caseId in transfer path → 404/403, no cross-case action", async () => {
+  t("horizontal escalation: forged caseId in transfer path → 404/403, no cross-case action", async () => {
     const res = await adminFsl.post("/api/v1/cases/CASE-XX-XX-2099-999999/transfers/latest/accept");
     expect([403, 404]).toContain(res.status);
   });
 
-  test("vertical escalation: officer cannot use admin-only endpoints", async () => {
+  t("vertical escalation: officer cannot use admin-only endpoints", async () => {
     await officerPolice.get("/api/v1/admin/stats");
     expect(officerPolice.lastStatus).toBe(403);
   });
 
-  test("malicious long strings are rejected by validation", async () => {
+  t("malicious long strings are rejected by validation", async () => {
     const res = await createCase(adminPolice, { title: "x".repeat(500) });
     expect(res.status).toBe(422);
   });
 
-  test("unauthenticated incoming-transfers access → 401", async () => {
+  t("unauthenticated incoming-transfers access → 401", async () => {
     await anon.get("/api/v1/transfers/incoming");
     expect(anon.lastStatus).toBe(401);
   });
 
-  test("CASE_ACCESS_DENIED event recorded on unauthorized detail access", async () => {
+  t("CASE_ACCESS_DENIED event recorded on unauthorized detail access", async () => {
     await createCase(adminPolice, { title: `Deny Audit Case ${stamp}` });
     const cid = adminPolice.data().caseId;
     await adminBhopal.get(`/api/v1/cases/${cid}`);
@@ -866,15 +869,15 @@ describe("Security", () => {
 // 9. PHASE 1 REGRESSION GUARDS
 // ============================================================
 describe("Phase 1 regression", () => {
-  test("auth/me still works", async () => {
+  t("auth/me still works", async () => {
     await adminPolice.get("/api/v1/auth/me");
     expect(adminPolice.lastStatus).toBe(200);
   });
-  test("departments directory still works", async () => {
+  t("departments directory still works", async () => {
     await sys.get("/api/v1/departments?page=1&pageSize=5");
     expect(sys.lastStatus).toBe(200);
   });
-  test("officers directory still works", async () => {
+  t("officers directory still works", async () => {
     await sys.get("/api/v1/officers?page=1&pageSize=5");
     expect(sys.lastStatus).toBe(200);
   });

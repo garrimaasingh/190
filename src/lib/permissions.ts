@@ -79,6 +79,12 @@ export const PERMISSIONS = {
   INTEGRATION_EXPORT: "integration.export",
   INTEGRATION_RESOLVE_CONFLICT: "integration.resolve_conflict",
   INTEGRATION_ADMIN: "integration.admin",
+  // Phase 6 — case knowledge graph (spec §67). Role permission is
+  // necessary but NOT sufficient: viewing additionally requires
+  // case-level access + document/evidence classification clearance,
+  // and re-syncing requires case-level MANAGE.
+  GRAPH_READ: "graph.read",
+  GRAPH_SYNC: "graph.sync",
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -130,6 +136,8 @@ const SYSTEM_ADMIN: Permission[] = [
   PERMISSIONS.INTEGRATION_EXPORT,
   PERMISSIONS.INTEGRATION_RESOLVE_CONFLICT,
   PERMISSIONS.INTEGRATION_ADMIN,
+  PERMISSIONS.GRAPH_READ,
+  PERMISSIONS.GRAPH_SYNC,
 ];
 
 const DEPARTMENT_ADMIN: Permission[] = [
@@ -173,6 +181,8 @@ const DEPARTMENT_ADMIN: Permission[] = [
   PERMISSIONS.INTEGRATION_IMPORT,
   PERMISSIONS.INTEGRATION_EXPORT,
   PERMISSIONS.INTEGRATION_RESOLVE_CONFLICT,
+  PERMISSIONS.GRAPH_READ,
+  PERMISSIONS.GRAPH_SYNC,
 ];
 
 const OFFICER: Permission[] = [
@@ -198,6 +208,8 @@ const OFFICER: Permission[] = [
   PERMISSIONS.EVIDENCE_TRANSFER_DECIDE,
   PERMISSIONS.REPORT_GENERATE,
   PERMISSIONS.AI_USE,
+  PERMISSIONS.GRAPH_READ,
+  PERMISSIONS.GRAPH_SYNC, // still requires case-level MANAGE at the route layer
 ];
 
 const AUDITOR: Permission[] = [
@@ -215,6 +227,7 @@ const AUDITOR: Permission[] = [
   PERMISSIONS.REPORT_GENERATE, // Phase 4: read-level report generation
   PERMISSIONS.AI_USE, // Phase 5: assistive AI (search/ask/view) — clearance still applies
   PERMISSIONS.INTEGRATION_READ, // Phase 8: read-only integration history (spec §38)
+  PERMISSIONS.GRAPH_READ, // Phase 6: view case graphs — clearance still applies
   // Deliberately ABSENT: AI_REVIEW (auditors observe, they do not verify AI results —
   // verification is an operational act), AI_CONFIGURE, audit mutation (does not exist),
   // case/document/evidence write permissions, LEDGER_MANAGE,

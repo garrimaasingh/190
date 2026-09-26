@@ -30,9 +30,28 @@ def main() -> None:
     # never keeps serving old code after a restart (ops lesson from
     # Phase 5: `start-dev-daemon` while a server is running is a NO-OP
     # that silently leaves old code live).
-    os.system("fuser -k 3000/tcp >/dev/null 2>&1 || true")
+    #
+    # OPS LESSON (Phase 6): `fuser` is NOT installed in this sandbox —
+    # the old `fuser -k 3000/tcp || true` silently no-opped, so a
+    # stale server survived every "restart" and kept serving a
+    # DELETED database inode after a reset (reads OK, writes fail
+    # SQLITE_READONLY). Kill by port via lsof/pkill and WAIT until
+    # the port is actually free before binding.
+    import socket
     import time
-    time.sleep(1.5)
+
+    def port_free(port: int) -> bool:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(0.5)
+            return s.connect_ex(("127.0.0.1", port)) != 0
+
+    os.system("lsof -ti tcp:3000 2>/dev/null | xargs -r kill -9 2>/dev/null || true")
+    os.system("pkill -9 -f 'next dev' 2>/dev/null || true")
+    os.system("pkill -9 -f 'next-server' 2>/dev/null || true")
+    deadline = time.time() + 15
+    while time.time() < deadline and not port_free(3000):
+        time.sleep(0.5)
+    time.sleep(1.0)
     daemonize()
     os.chdir("/home/z/my-project")
     os.execvp("bun", ["bun", "run", "dev"])

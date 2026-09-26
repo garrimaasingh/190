@@ -592,6 +592,16 @@ export const AUDIT_EVENT_TYPES = [
 ] as const;
 export type AuditEventType = (typeof AUDIT_EVENT_TYPES)[number];
 
+// Phase 6 — graph audit events (spec §67). Declared BEFORE
+// AUDIT_EVENT_CATEGORIES below consumes them.
+export const GRAPH_AUDIT_EVENT_TYPES = [
+  "GRAPH_SYNC_COMPLETED",
+  "GRAPH_SYNC_FAILED",
+  "GRAPH_VIEWED",
+  "GRAPH_ACCESS_DENIED",
+] as const;
+export type GraphAuditEventType = (typeof GRAPH_AUDIT_EVENT_TYPES)[number];
+
 // Audit search categories (spec §33/§60)
 export const AUDIT_EVENT_CATEGORIES: Record<string, string[]> = {
   AUTHENTICATION: ["LOGIN_SUCCESS", "LOGIN_FAILED", "LOGOUT"],
@@ -599,6 +609,7 @@ export const AUDIT_EVENT_CATEGORIES: Record<string, string[]> = {
   AUDIT: ["AUDIT_SEARCHED", "AUDIT_EVENT_VIEWED", "AUDIT_CHAIN_VERIFIED", "AUDIT_ACCESS_DENIED"],
   LEDGER: ["LEDGER_ANCHORED", "LEDGER_ANCHOR_VERIFIED", "LEDGER_VERIFY_FAILED"],
   REPORT: ["REPORT_GENERATED", "REPORT_ACCESS_DENIED"],
+  GRAPH: [...GRAPH_AUDIT_EVENT_TYPES],
 };
 
 // Documented genesis hash (spec §27): a defined, inspectable starting
@@ -899,6 +910,50 @@ export const AI_RATE_LIMITS = {
 export const AI_EMBEDDING_DIMENSION = 256;
 export const AI_CHUNK_TARGET_CHARS = 800;
 export const AI_CHUNK_MAX_CHARS = 1000;
+
+// ============================================================
+// PHASE 6 — Case knowledge graph registries (spec §67/§68).
+// The graph is a DERIVED projection over central records, stored in
+// the relational database (Prisma/SQLite simulation — NO Neo4j
+// claim). Only human-confirmed data becomes graph facts: SUGGESTED
+// or REJECTED AI output never enters the graph (spec §67).
+// ============================================================
+
+export const GRAPH_NODE_TYPES = [
+  "CASE",
+  "DOCUMENT",
+  "EVIDENCE",
+  "ENTITY",
+  "DEPARTMENT",
+] as const;
+export type GraphNodeType = (typeof GRAPH_NODE_TYPES)[number];
+
+export const GRAPH_EDGE_TYPES = [
+  "CONTAINS", // CASE → DOCUMENT / CASE → EVIDENCE (structural)
+  "RELATIONSHIP", // DOCUMENT↔DOCUMENT / EVIDENCE↔DOCUMENT with registry relationshipType
+  "MENTIONS", // DOCUMENT → ENTITY (verified mentions only)
+  "SAME_ENTITY", // ENTITY ↔ ENTITY via CONFIRMED EntityCandidateMatch (never auto-merge)
+  "PARTICIPATION", // CASE ↔ DEPARTMENT (custodian/origin/participant)
+] as const;
+export type GraphEdgeType = (typeof GRAPH_EDGE_TYPES)[number];
+
+// Where every edge comes from — each value maps 1:1 to a central
+// table, so any graph fact can be traced back to its source row.
+export const GRAPH_EDGE_PROVENANCE = [
+  "STRUCTURAL", // containment/participation derived from FK structure
+  "HUMAN_RELATIONSHIP", // DocumentRelationship / EvidenceDocumentRelationship rows
+  "AI_CONFIRMED_RELATIONSHIP", // AIRelationshipSuggestion with status=CONFIRMED only
+  "VERIFIED_ENTITY", // ExtractedEntity with reviewStatus=VERIFIED only
+  "CONFIRMED_ENTITY_MATCH", // EntityCandidateMatch with status=CONFIRMED (both sides VERIFIED)
+  "CASE_PARTICIPATION", // CaseDepartment / custodian / origin
+] as const;
+export type GraphEdgeProvenance = (typeof GRAPH_EDGE_PROVENANCE)[number];
+
+export const GRAPH_SYNC_STATUSES = ["SYNCED", "FAILED"] as const;
+// Staleness is COMPUTED at read time (newest central row vs
+// lastSyncedAt) — never a stored, possibly-stale flag.
+export const GRAPH_MAX_NODES = 500;
+export const GRAPH_MAX_EDGES = 1200;
 
 // ============================================================
 // PHASE 8 — Inter-Department Integration registries (spec §2-§8).

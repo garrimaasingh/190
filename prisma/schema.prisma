@@ -256,6 +256,7 @@ model Case {
   aiJobs                        AIProcessingJob[]  @relation("aiJobCase")
   aiTimelineEvents              AITimelineEvent[]  @relation("caseAiTimeline")
   externalCaseReferences        ExternalCaseReference[]
+  graphSync                     GraphSyncState?    @relation("caseGraphSync")
 
   createdAt                     DateTime  @default(now())
   updatedAt                     DateTime  @updatedAt
@@ -1586,4 +1587,77 @@ model IntegrationCallLog {
 
   @@index([connectionId, createdAt])
   @@index([outcome])
+}
+
+// ============================================================
+// PHASE 6 — Case knowledge graph (spec §67/§68).
+//
+// A DERIVED, REBUILDABLE PROJECTION of the central records — never
+// authoritative, never a source of truth. The graph is stored in
+// Prisma/SQLite (MVP simulation); NO Neo4j/graph-database claim is
+// made. Everything in the graph traces to a central row via
+// GraphEdge.sourceRefs, and every edge is grounded in one of:
+//   - STRUCTURAL containment (case→document/evidence/department)
+//   - HUMAN-created relationships (Phase 3/4 relationship tables)
+//   - HUMAN-CONFIRMED AI relationship suggestions (Phase 5, spec §67)
+//   - VERIFIED entities + CONFIRMED entity matches (Phase 5)
+// AI SUGGESTED/REJECTED data NEVER enters the graph (spec §67).
+//
+// Sync is a deterministic full rebuild per case inside one
+// transaction; classification levels are projected onto nodes so
+// READ-time clearance filtering can drop sensitive subgraphs without
+// ever touching central data.
+// ============================================================
+model GraphSyncState {
+  id                   String   @id @default(cuid())
+  caseRef              String   @unique // public CASE id (CASE-…)
+  case                 Case     @relation("caseGraphSync", fields: [caseRef], references: [caseId], onDelete: Restrict)
+  status               String   @default("SYNCED") // GRAPH_SYNC_STATUSES
+  nodeCount            Int      @default(0)
+  edgeCount            Int      @default(0)
+  syncVersion          Int      @default(1)
+  lastSyncedAt         DateTime @default(now())
+  lastError            String?
+  triggeredByOfficerId String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@index([status])
+}
+
+model GraphNode {
+  id             String  @id @default(cuid())
+  caseRef        String  // public CASE id
+  nodeKey        String  // stable within the case: CASE:<id> | DOC:<id> | EVD:<id> | ENT:<TYPE>:<slug> | DEPT:<code>
+  nodeType       String  // GRAPH_NODE_TYPES
+  label          String
+  refId          String? // public identity of the underlying record where one exists
+  entityType     String? // AI_ENTITY_TYPES value for ENTITY nodes
+  classification String? // max classification of supporting records (drives read-time clearance filtering)
+  status         String? // underlying record status snapshot (COMMITTED/SUPERSEDED/…)
+  provenance     String? // JSON [{model,id}] — contributing central rows, full traceability
+
+  @@unique([caseRef, nodeKey])
+  @@index([caseRef])
+  @@index([nodeType])
+}
+
+model GraphEdge {
+  id                   String   @id @default(cuid())
+  caseRef              String   // public CASE id
+  edgeKey              String   // deterministic: source>TYPE(:rel)#prov>target
+  sourceKey            String
+  targetKey            String
+  edgeType             String   // GRAPH_EDGE_TYPES
+  relationshipType     String?  // original registry value (SUPPLEMENTS/DESCRIBES/…)
+  provenance           String   // GRAPH_EDGE_PROVENANCE
+  sourceRefs           String?  // JSON [{model,id}] — traceability to central rows
+  confirmedByOfficerId String?  // officerId when a human created/confirmed the underlying relationship
+  confidence           Float?   // ONLY on AI-confirmed edges — human/structural facts carry null
+  createdAt            DateTime @default(now())
+
+  @@unique([caseRef, edgeKey])
+  @@index([caseRef])
+  @@index([sourceKey])
+  @@index([targetKey])
 }

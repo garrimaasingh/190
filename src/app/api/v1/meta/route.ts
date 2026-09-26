@@ -59,6 +59,10 @@ import {
   INTEGRATION_CAPABILITY_KEYS,
   INTEGRATION_AUDIT_EVENT_TYPES,
   INTEGRATION_RESOLUTION_STATUSES,
+  GRAPH_NODE_TYPES,
+  GRAPH_EDGE_TYPES,
+  GRAPH_EDGE_PROVENANCE,
+  GRAPH_AUDIT_EVENT_TYPES,
 } from "@/lib/constants";
 import { ROLE_PERMISSIONS } from "@/lib/permissions";
 
@@ -133,6 +137,11 @@ export async function GET(req: Request) {
       integrationCapabilityKeys: INTEGRATION_CAPABILITY_KEYS,
       integrationAuditEventTypes: INTEGRATION_AUDIT_EVENT_TYPES,
       integrationResolutionStatuses: INTEGRATION_RESOLUTION_STATUSES,
+      // Phase 6 — case knowledge graph reference data (spec §67/§68)
+      graphNodeTypes: GRAPH_NODE_TYPES,
+      graphEdgeTypes: GRAPH_EDGE_TYPES,
+      graphEdgeProvenance: GRAPH_EDGE_PROVENANCE,
+      graphAuditEventTypes: GRAPH_AUDIT_EVENT_TYPES,
     });
   } catch (err) {
     return handleApiError(err);

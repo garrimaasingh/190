@@ -1263,6 +1263,26 @@ async function main() {
     }
   }
 
+  // ---- PHASE 6 — build case knowledge graphs via the REAL sync
+  // service (deterministic, confirmed-data-only projection). The
+  // seed exercises the production code path — no separate seed-only
+  // graph builder exists. ----
+  const cases = await db.case.findMany({ select: { caseId: true, title: true }, orderBy: { caseId: "asc" } });
+  let graphsSynced = 0;
+  for (const c of cases) {
+    try {
+      const { syncCaseGraph } = await import("../src/lib/graph/graph-sync");
+      const result = await syncCaseGraph(c.caseId, { triggeredByOfficerId: sysadminOfficer.id });
+      graphsSynced += 1;
+      console.log(`  Graph ${c.caseId}: ${result.nodeCount} nodes / ${result.edgeCount} edges (v${result.syncVersion})`);
+    } catch (err) {
+      console.log(`  Graph ${c.caseId}: SYNC FAILED — ${err instanceof Error ? err.message : "unknown"}`);
+    }
+  }
+  if (graphsSynced > 0) {
+    console.log(`  Graph: ${graphsSynced}/${cases.length} case knowledge graphs projected (human-confirmed data only)`);
+  }
+
   console.log("============================================================");
   console.log("Phase 1 + Phase 2 seed complete  [DEMO / DEVELOPMENT DATA]");
   console.log(`  Country : ${india.name} (${india.code})`);
