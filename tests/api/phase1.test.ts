@@ -13,7 +13,7 @@ function t(name: string, fn: () => Promise<unknown> | unknown) {
 const BASE = "http://localhost:3000";
 const db = new PrismaClient();
 const SEED_PASSWORD = process.env.SEED_PASSWORD || "Demo@Pass1";
-const BYPASS = { "x-test-bypass-rate-limit": "phase1-local-test-bypass-9f3a" };
+const BYPASS = { "x-test-bypass-rate-limit": "phase1-local-test-bypass-9f3a", "connection": "close" }; // connection:close — kills the bun-fetch/Next-dev keep-alive race that intermittently delivers empty request bodies (500 JSON.parse)
 
 // ---------- cookie-aware test client ----------
 

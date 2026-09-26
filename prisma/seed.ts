@@ -1117,6 +1117,21 @@ async function main() {
         });
       }
       await drainQueue();
+      // OPS LESSON (Phase 6): drainQueue() is guarded against
+      // reentrancy (`if (draining) return`), and the enqueue hook
+      // fires its own fire-and-forget drain — so the awaited call
+      // above can legally NO-OP while that auto-drain is still in
+      // flight, and the seed used to exit with jobs still QUEUED
+      // (graphs then projected an empty AI state). Wait for the
+      // queue to actually settle before continuing.
+      for (let settle = 0; settle < 120; settle++) {
+        const pending = await db.aIProcessingJob.count({
+          where: { status: { in: ["QUEUED", "PROCESSING"] } },
+        });
+        if (pending === 0) break;
+        await new Promise((r) => setTimeout(r, 1000));
+        await drainQueue(); // picks up whatever remains once the guard frees
+      }
 
       // ---- HUMAN verification pass through the REAL review service ----
       const { reviewAIResult } = await import("@/lib/ai/review");

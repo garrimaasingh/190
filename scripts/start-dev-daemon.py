@@ -54,7 +54,7 @@ def main() -> None:
     time.sleep(1.0)
     daemonize()
     os.chdir("/home/z/my-project")
-    os.execvp("bun", ["bun", "run", "dev"])
+    os.execvp("bun", ["--max-old-space-size=1536", "run", "dev"])
 
 
 if __name__ == "__main__":
