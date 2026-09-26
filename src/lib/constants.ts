@@ -1159,3 +1159,32 @@ export const INTEGRATION_SYNC_MIN_FREQUENCY_MINUTES = 5;
 export const INTEGRATION_SYNC_MAX_FREQUENCY_MINUTES = 1440;
 
 export type IntegrationEnvironment = (typeof INTEGRATION_ENVIRONMENTS)[number];
+
+// ============================================================
+// Phase 9 — Manual Import/Export + Interoperability Fallback.
+// The registries live in src/lib/interop/constants.ts (service
+// scope) and are re-exported here so /api/v1/meta exposes them
+// through the same import surface as every other phase.
+// Manual packages are the FALLBACK interoperability channel —
+// never a live system integration.
+// ============================================================
+export {
+  INTEROP_SCHEMA_VERSIONS,
+  PACKAGE_TYPES,
+  EXPORT_JOB_STATUSES,
+  IMPORT_JOB_STATUSES,
+  IMPORT_CONFLICT_STATUSES,
+  IMPORT_APPROVAL_DECISIONS,
+  IMPORT_RESOLUTIONS,
+  IMPORT_RECORD_TYPES,
+  INTEROP_RELATIONSHIP_PROVENANCE,
+  PACKAGE_CLASSIFICATIONS,
+  INTEROP_AUDIT_EVENT_TYPES,
+  INTEROP_LIMITS,
+  INTEROP_PACKAGE_TTL_HOURS,
+  INTEROP_IMPORT_APPROVAL_POLICY,
+  INTEROP_SEPARATION_OF_DUTIES,
+  INTEROP_IMMUTABLE_FIELDS,
+  INTEROP_CASE_MUTABLE_FIELDS,
+  INTEROP_RATE_LIMITS,
+} from "./interop/constants";

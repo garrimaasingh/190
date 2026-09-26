@@ -63,6 +63,18 @@ import {
   GRAPH_EDGE_TYPES,
   GRAPH_EDGE_PROVENANCE,
   GRAPH_AUDIT_EVENT_TYPES,
+  // Phase 9
+  PACKAGE_TYPES,
+  EXPORT_JOB_STATUSES,
+  IMPORT_JOB_STATUSES,
+  IMPORT_CONFLICT_STATUSES,
+  IMPORT_APPROVAL_DECISIONS,
+  IMPORT_RESOLUTIONS,
+  IMPORT_RECORD_TYPES,
+  INTEROP_SCHEMA_VERSIONS,
+  INTEROP_AUDIT_EVENT_TYPES,
+  INTEROP_RELATIONSHIP_PROVENANCE,
+  PACKAGE_CLASSIFICATIONS,
 } from "@/lib/constants";
 import { ROLE_PERMISSIONS } from "@/lib/permissions";
 
@@ -142,6 +154,18 @@ export async function GET(req: Request) {
       graphEdgeTypes: GRAPH_EDGE_TYPES,
       graphEdgeProvenance: GRAPH_EDGE_PROVENANCE,
       graphAuditEventTypes: GRAPH_AUDIT_EVENT_TYPES,
+      // Phase 9 — manual interoperability
+      interopPackageTypes: PACKAGE_TYPES,
+      interopExportJobStatuses: EXPORT_JOB_STATUSES,
+      interopImportJobStatuses: IMPORT_JOB_STATUSES,
+      interopConflictStatuses: IMPORT_CONFLICT_STATUSES,
+      interopApprovalDecisions: IMPORT_APPROVAL_DECISIONS,
+      interopResolutions: IMPORT_RESOLUTIONS,
+      interopRecordTypes: IMPORT_RECORD_TYPES,
+      interopSchemaVersions: INTEROP_SCHEMA_VERSIONS,
+      interopAuditEventTypes: INTEROP_AUDIT_EVENT_TYPES,
+      interopRelationshipProvenance: INTEROP_RELATIONSHIP_PROVENANCE,
+      interopPackageClassifications: PACKAGE_CLASSIFICATIONS,
     });
   } catch (err) {
     return handleApiError(err);

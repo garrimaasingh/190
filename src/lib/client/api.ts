@@ -725,3 +725,129 @@ export interface CaseGraphPayload {
   };
   disclaimer: string;
 }
+
+// ---------- Phase 9: manual interoperability (import/export packages) ----------
+
+export interface InteropExportPreview {
+  caseId: string;
+  title: string;
+  documents: { documentId: string; title: string; documentType: string; classification: string; status: string; fileSize: number; mimeType: string; committedAt: string | null; selectable: boolean }[];
+  evidence: { evidenceId: string; title: string; evidenceType: string; classification: string; status: string; hasBinary: boolean; selectable: boolean }[];
+  relationships: { id: string; sourceDocumentId: string; targetDocumentId: string; relationshipType: string; selectable: boolean }[];
+  auditEventsAvailable: boolean;
+  interopNote: string;
+}
+
+export interface InteropExportJob {
+  jobId: string;
+  packageId: string | null;
+  exportType: string;
+  status: string;
+  classification: string | null;
+  recordCounts: { cases: number; documents: number; evidence: number; relationships: number; auditEvents: number; excluded: number } | null;
+  errorCode: string | null;
+  errorMessage: string | null;
+  expiresAt: string | null;
+  packageSize: number | null;
+  packageSha256: string | null;
+  requestedBy: { officerId: string; name: string };
+}
+
+export interface InteropImportJobRow {
+  jobId: string;
+  packageId: string | null;
+  status: string;
+  stage: string | null;
+  packageType: string | null;
+  schemaVersion: string | null;
+  sourceSystem: string | null;
+  packageTypeClassification: string | null;
+  integrityResult: string | null;
+  signatureStatus: string | null;
+  scanStatus: string | null;
+  recordsReceived: number;
+  recordsValid: number;
+  recordsInvalid: number;
+  recordsConflicted: number;
+  recordsImported: number;
+  requiresApproval: boolean;
+  errorSummary: string | null;
+  errorCode?: string | null;
+  errorMessage?: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  createdAt: string;
+  uploadedByOfficer?: { officerId: string; name: string };
+}
+
+export interface InteropConflict {
+  conflictId: string;
+  importJobId: string;
+  recordType: string;
+  recordRecordId: string | null;
+  fieldName: string;
+  centralValue: string | null;
+  incomingValue: string | null;
+  sourceReference: string | null;
+  conflictType: string;
+  status: string;
+  resolvedByOfficerId: string | null;
+  resolvedAt: string | null;
+  resolutionNote: string | null;
+  createdAt: string;
+}
+
+export interface InteropImportRecord {
+  id: string;
+  importJobId: string;
+  recordType: string;
+  externalId: string;
+  resolution: string | null;
+  targetEntityId: string | null;
+  payloadJson: string | null;
+  payloadPath: string | null;
+  binarySha256: string | null;
+  validationStatus: string;
+  conflictStatus: string;
+  authorizationStatus: string;
+  processingStatus: string;
+  errorDetails: string | null;
+}
+
+export interface InteropPackageInfo {
+  packageId: string;
+  packageType: string;
+  schemaVersion: string;
+  sourceSystem: string;
+  sourceDepartment: string | null;
+  createdInEnvironment: string | null;
+  classification: string;
+  caseCount: number;
+  documentCount: number;
+  evidenceCount: number;
+  relationshipCount: number;
+  packageIntegrity: string;
+  packageSha256: string;
+  manifestHash: string;
+  signature: { algorithm: string; status: string; note: string | null } | null;
+  integrityChecks: { kind: string; result: string; verifiedAt: string }[];
+  fileCount?: number;
+  downloadCount?: number;
+  createdAt: string;
+}
+
+export interface InteropImportJobDetail {
+  job: InteropImportJobRow & { uploadedByDepartmentId: string };
+  records: InteropImportRecord[];
+  approvals: { id: string; decision: string; comment: string | null; createdAt: string; reviewerOfficer: { officerId: string; name: string } }[];
+  conflicts: InteropConflict[];
+  package: InteropPackageInfo | null;
+  interopNote: string;
+}
+
+export interface InteropCommitResult {
+  job: InteropImportJobRow;
+  counters: { received: number; imported: number; rejected: number; conflicted: number; skipped: number };
+  graphSync: { caseRef: string; ok: boolean; error?: string }[];
+  interopNote: string;
+}

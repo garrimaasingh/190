@@ -104,6 +104,9 @@ model Department {
   aiJobsRequested       AIProcessingJob[] @relation("aiJobRequesterDepartment")
   aiReviewsGiven        AIReview[]        @relation("aiReviewDepartment")
   integrationsOwned     IntegrationConnection[] @relation("integrationOwner")
+  // Phase 9 — manual interoperability ownership
+  manualExportJobs      ManualExportJob[]   @relation("manualExportDepartment")
+  manualImportJobs      ManualImportJob[]   @relation("manualImportDepartment")
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
 
@@ -157,6 +160,11 @@ model Officer {
   integrationsImportedBy   IntegrationImportJob[]         @relation("integrationImporter")
   integrationsExportedBy   IntegrationExportJob[]         @relation("integrationExporter")
   integrationConflictsResolved IntegrationConflict[]     @relation("integrationConflictResolver")
+  // Phase 9 — manual interoperability roles
+  manualExportJobs         ManualExportJob[]              @relation("manualExporter")
+  manualImportJobs         ManualImportJob[]              @relation("manualImporter")
+  manualConflictsResolved  ManualImportConflict[]         @relation("manualConflictResolver")
+  importApprovalsGiven     ImportApproval[]               @relation("importApprover")
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
 
@@ -1660,4 +1668,237 @@ model GraphEdge {
   @@index([caseRef])
   @@index([sourceKey])
   @@index([targetKey])
+}
+
+// ============================================================
+// Phase 9 — Manual Import/Export + Interoperability Fallback.
+// Manual packages are the FALLBACK interoperability channel for
+// situations where no API integration exists (Phase 8 remains
+// the primary interop mechanism; a manual package is NEVER a
+// live system integration). Additive models, string statuses
+// (SQLite), Restrict FKs — same conventions as Phases 3-8.
+// ============================================================
+
+model PackageRecord {
+  id                  String   @id @default(cuid())
+  packageId           String   @unique // PKG-MP-IND-2026-NNNNNN — immutable, never reused
+  packageType         String   // PACKAGE_TYPES: *_EXPORT / *_IMPORT variants
+  schemaVersion       String   // e.g. "1.0" — importer refuses unknown versions
+  sourceSystem        String   // declared, never fabricated by the platform
+  sourceDepartment    String?
+  sourceApplication   String?
+  sourceVersion       String?
+  createdInEnvironment String? // source_environment (declared by creator)
+  classification      String   // >= most restrictive included record (§48)
+  caseCount           Int      @default(0)
+  documentCount       Int      @default(0)
+  evidenceCount       Int      @default(0)
+  relationshipCount   Int      @default(0)
+  integrityAlgorithm  String   @default("SHA-256")
+  // Deterministic canonical-manifest integrity value (§14) — NOT a signature.
+  packageIntegrity    String
+  // Raw archive bytes SHA-256 — the duplicate-detection hash (§43/§70).
+  packageSha256       String   @unique
+  manifestHash        String
+  firstSeenJobId      String?  // manual export/import job that introduced it
+  createdAt           DateTime @default(now())
+
+  files        PackageFile[]
+  integrityChecks PackageIntegrityRecord[]
+  signatures   PackageSignature[]
+  downloads    PackageDownload[]
+
+  @@index([packageSha256])
+  @@index([packageType])
+}
+
+model PackageFile {
+  id         String @id @default(cuid())
+  packageId  String
+  package    PackageRecord @relation(fields: [packageId], references: [id], onDelete: Restrict)
+  path       String // package-relative, normalized
+  sha256     String
+  size       Int
+
+  @@unique([packageId, path])
+  @@index([packageId])
+}
+
+model PackageIntegrityRecord {
+  id            String   @id @default(cuid())
+  packageId     String
+  package       PackageRecord @relation(fields: [packageId], references: [id], onDelete: Restrict)
+  jobId         String?  // manual export/import job that ran the check
+  kind          String   // EXPORT_BUILD | IMPORT_VERIFY
+  algorithm     String   @default("SHA-256")
+  result        String   // MATCH | MISMATCH | FAILED
+  expectedSha256 String?
+  actualSha256  String?
+  verifiedByOfficerId String?
+  verifiedAt    DateTime @default(now())
+
+  @@index([packageId])
+  @@index([jobId])
+}
+
+model PackageSignature {
+  id          String   @id @default(cuid())
+  packageId   String
+  package     PackageRecord @relation(fields: [packageId], references: [id], onDelete: Restrict)
+  algorithm   String   @default("UNSUPPORTED") // future: RSA | ECDSA | Ed25519
+  status      String   @default("UNSUPPORTED") // UNSIGNED | UNSUPPORTED | VALID | INVALID
+  note        String?
+  createdAt   DateTime @default(now())
+
+  @@index([packageId])
+}
+
+model PackageDownload {
+  id                  String   @id @default(cuid())
+  packageId           String
+  package             PackageRecord @relation(fields: [packageId], references: [id], onDelete: Restrict)
+  exportJobId         String?  // manual export job the download came from
+  downloadedByOfficerId String
+  downloadedByDepartmentId String
+  downloadedAt        DateTime @default(now())
+
+  @@index([packageId])
+  @@index([exportJobId])
+}
+
+model ManualExportJob {
+  id                        String    @id @default(cuid())
+  jobId                     String    @unique // MEX-MP-IND-2026-NNNNNN
+  packageId                 String?   // assigned when the package is built
+  requestedByOfficerId      String
+  requestedByOfficer        Officer   @relation("manualExporter", fields: [requestedByOfficerId], references: [id], onDelete: Restrict)
+  requestedByDepartmentId   String
+  requestedByDepartment     Department @relation("manualExportDepartment", fields: [requestedByDepartmentId], references: [id], onDelete: Restrict)
+  exportType                String    // PACKAGE_TYPES *_EXPORT values
+  status                    String    @default("QUEUED") // EXPORT_JOB_STATUSES
+  selection                 String?   // JSON: caseRef, documentIds, evidenceIds, includes, purpose
+  recordCounts              String?   // JSON {cases, documents, evidence, relationships, auditEvents, excluded}
+  classification            String?   // package classification (max of included records)
+  startedAt                 DateTime?
+  completedAt               DateTime?
+  packageStorageKey         String?   // opaque interop-packages/... key (encrypted at rest)
+  packageKeyReference       String?   // encryption key version reference — never key material
+  packageSize               Int?
+  packageSha256             String?   // raw archive hash (dup detection + integrity)
+  expiresAt                 DateTime?
+  errorCode                 String?
+  errorMessage              String?
+  createdAt                 DateTime  @default(now())
+
+  @@index([requestedByOfficerId])
+  @@index([requestedByDepartmentId])
+  @@index([status])
+  @@index([packageId])
+}
+
+model ManualImportJob {
+  id                        String    @id @default(cuid())
+  jobId                     String    @unique // MIM-MP-IND-2026-NNNNNN
+  packageId                 String?
+  uploadedByOfficerId       String
+  uploadedByOfficer         Officer   @relation("manualImporter", fields: [uploadedByOfficerId], references: [id], onDelete: Restrict)
+  uploadedByDepartmentId    String
+  uploadedByDepartment      Department @relation("manualImportDepartment", fields: [uploadedByDepartmentId], references: [id], onDelete: Restrict)
+  status                    String    @default("UPLOADED") // IMPORT_JOB_STATUSES
+  packageType               String?
+  schemaVersion             String?
+  sourceSystem              String?   // from manifest — declared, never fabricated
+  sourceDepartment          String?
+  packageTypeClassification String?   // package classification from manifest
+  stage                     String?   // current pipeline stage for progress (§79)
+  packageStorageKey         String?   // staged archive (encrypted at rest)
+  packageKeyReference       String?
+  packageSize               Int?
+  packageSha256             String?
+  manifestHash              String?
+  integrityResult           String?   // MATCH | MISMATCH | FAILED | PENDING
+  signatureStatus           String?   // UNSIGNED | UNSUPPORTED | VALID | INVALID
+  scanStatus                String?   // CLEAN | SUSPICIOUS | MALICIOUS | PENDING | SKIPPED
+  recordsReceived           Int       @default(0)
+  recordsValid              Int       @default(0)
+  recordsInvalid            Int       @default(0)
+  recordsConflicted         Int       @default(0)
+  recordsImported           Int       @default(0)
+  requiresApproval          Boolean   @default(false)
+  errorCode                 String?
+  errorMessage              String?
+  errorSummary              String?
+  startedAt                 DateTime?
+  completedAt               DateTime?
+  createdAt                 DateTime  @default(now())
+
+  records   ManualImportRecord[]
+  approvals ImportApproval[]
+  conflicts ManualImportConflict[] @relation("manualConflictJob")
+
+  @@index([uploadedByOfficerId])
+  @@index([uploadedByDepartmentId])
+  @@index([status])
+}
+
+model ManualImportRecord {
+  id                   String @id @default(cuid())
+  importJobId          String
+  importJob            ManualImportJob @relation(fields: [importJobId], references: [id], onDelete: Restrict)
+  recordType           String // CASE | DOCUMENT | EVIDENCE | RELATIONSHIP
+  externalId           String // id as declared inside the package
+  resolution           String? // CREATE | LINK_EXISTING | UPDATE_ALLOWED_FIELD | CONFLICT | REJECT
+  targetEntityId       String? // central public id when linked/created
+  payloadJson          String? // sanitized metadata payload (no binaries)
+  payloadPath          String? // package-relative path of the binary (documents/evidence)
+  binarySha256         String? // declared/observed binary hash
+  validationStatus     String  @default("PENDING") // PENDING | VALID | INVALID
+  conflictStatus       String  @default("NONE") // NONE | CONFLICT
+  authorizationStatus  String  @default("PENDING") // PENDING | AUTHORIZED | UNAUTHORIZED
+  processingStatus     String  @default("PENDING") // PENDING | STAGED | IMPORTED | REJECTED | SKIPPED_DUPLICATE
+  errorDetails         String?
+  createdAt            DateTime @default(now())
+
+  @@index([importJobId])
+  @@index([recordType])
+  @@index([externalId])
+}
+
+model ManualImportConflict {
+  id              String   @id @default(cuid())
+  conflictId      String   @unique // MCF-MP-IND-2026-NNNNNN
+  importJobId     String
+  importJob       ManualImportJob @relation("manualConflictJob", fields: [importJobId], references: [id], onDelete: Restrict)
+  recordType      String
+  recordRecordId  String?  // ManualImportRecord.externalId of the subject record
+  fieldName       String
+  centralValue    String?
+  incomingValue   String?
+  sourceReference String?  // package path / external reference the incoming value came from
+  conflictType    String   // FIELD_VALUE | CLASSIFICATION_POLICY | IMMUTABLE_FIELD | DUPLICATE_BINARY
+  status          String   @default("OPEN") // OPEN | ACCEPT_INCOMING | KEEP_CENTRAL | MERGE | REJECT_RECORD
+  resolvedByOfficerId String?
+  resolvedByOfficer   Officer? @relation("manualConflictResolver", fields: [resolvedByOfficerId], references: [id], onDelete: Restrict)
+  resolvedAt      DateTime?
+  resolutionNote  String?
+  createdAt       DateTime @default(now())
+
+  @@index([importJobId])
+  @@index([status])
+  @@index([recordType])
+}
+
+model ImportApproval {
+  id                    String   @id @default(cuid())
+  importJobId           String
+  importJob             ManualImportJob @relation(fields: [importJobId], references: [id], onDelete: Restrict)
+  reviewerOfficerId     String
+  reviewerOfficer       Officer  @relation("importApprover", fields: [reviewerOfficerId], references: [id], onDelete: Restrict)
+  reviewerDepartmentId  String
+  decision              String   // APPROVED | REJECTED | PARTIALLY_APPROVED
+  comment               String?
+  createdAt             DateTime @default(now())
+
+  @@index([importJobId])
+  @@index([reviewerOfficerId])
 }

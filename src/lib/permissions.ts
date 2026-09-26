@@ -85,6 +85,16 @@ export const PERMISSIONS = {
   // and re-syncing requires case-level MANAGE.
   GRAPH_READ: "graph.read",
   GRAPH_SYNC: "graph.sync",
+  // Phase 9 — manual interoperability (spec §65). Role permission is
+  // necessary but NOT sufficient: export additionally requires case-level
+  // view access + per-record classification clearance; import review/
+  // approval additionally enforces separation of duties and department
+  // scoping. Manual packages are a FALLBACK channel — never a live
+  // integration, and never a replacement for Phase 8 connections.
+  INTEROP_READ: "interop.read",
+  INTEROP_EXPORT: "interop.export",
+  INTEROP_IMPORT: "interop.import",
+  INTEROP_REVIEW: "interop.review",
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -138,6 +148,10 @@ const SYSTEM_ADMIN: Permission[] = [
   PERMISSIONS.INTEGRATION_ADMIN,
   PERMISSIONS.GRAPH_READ,
   PERMISSIONS.GRAPH_SYNC,
+  PERMISSIONS.INTEROP_READ,
+  PERMISSIONS.INTEROP_EXPORT,
+  PERMISSIONS.INTEROP_IMPORT,
+  PERMISSIONS.INTEROP_REVIEW,
 ];
 
 const DEPARTMENT_ADMIN: Permission[] = [
@@ -183,6 +197,13 @@ const DEPARTMENT_ADMIN: Permission[] = [
   PERMISSIONS.INTEGRATION_RESOLVE_CONFLICT,
   PERMISSIONS.GRAPH_READ,
   PERMISSIONS.GRAPH_SYNC,
+  // Phase 9: department-scoped manual interop operations. Case-level
+  // view/manage + clearance + separation of duties are enforced at the
+  // route/service layer.
+  PERMISSIONS.INTEROP_READ,
+  PERMISSIONS.INTEROP_EXPORT,
+  PERMISSIONS.INTEROP_IMPORT,
+  PERMISSIONS.INTEROP_REVIEW,
 ];
 
 const OFFICER: Permission[] = [
@@ -210,6 +231,7 @@ const OFFICER: Permission[] = [
   PERMISSIONS.AI_USE,
   PERMISSIONS.GRAPH_READ,
   PERMISSIONS.GRAPH_SYNC, // still requires case-level MANAGE at the route layer
+  PERMISSIONS.INTEROP_READ, // Phase 9: officers may inspect interop jobs; export/import are admin acts
 ];
 
 const AUDITOR: Permission[] = [
@@ -228,6 +250,7 @@ const AUDITOR: Permission[] = [
   PERMISSIONS.AI_USE, // Phase 5: assistive AI (search/ask/view) — clearance still applies
   PERMISSIONS.INTEGRATION_READ, // Phase 8: read-only integration history (spec §38)
   PERMISSIONS.GRAPH_READ, // Phase 6: view case graphs — clearance still applies
+  PERMISSIONS.INTEROP_READ, // Phase 9: read-only interop oversight (mirror of §38 read-only policy)
   // Deliberately ABSENT: AI_REVIEW (auditors observe, they do not verify AI results —
   // verification is an operational act), AI_CONFIGURE, audit mutation (does not exist),
   // case/document/evidence write permissions, LEDGER_MANAGE,

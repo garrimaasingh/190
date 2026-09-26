@@ -13,7 +13,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { LayoutDashboard, Network, Building2, Users, ScrollText, UserCircle, Settings as SettingsIcon, Menu, LogOut, ShieldCheck, FolderSearch, Boxes, Scale, FileCheck2, ShieldEllipsis, SearchCheck, Bot, UserCheck2, Plug } from "lucide-react";
+import { LayoutDashboard, Network, Building2, Users, ScrollText, UserCircle, Settings as SettingsIcon, Menu, LogOut, ShieldCheck, FolderSearch, Boxes, Scale, FileCheck2, ShieldEllipsis, SearchCheck, Bot, UserCheck2, Plug, ArrowRightLeft } from "lucide-react";
 
 // ============================================================
 // AppShell (spec §20/§53): role-aware sidebar + topbar.
@@ -48,6 +48,9 @@ export type ViewKey =
   | "integrations"
   | "integration-detail"
   | "integration-jobs"
+  | "interoperability"
+  | "interop-export"
+  | "interop-import"
   | "reports";
 
 export interface NavItem {
@@ -74,6 +77,7 @@ const NAV: NavItem[] = [
   { key: "reports", label: "Reports", icon: <FileCheck2 size={18} aria-hidden />, roles: ["SYSTEM_ADMIN", "AUDITOR", "DEPARTMENT_ADMIN"] },
   { key: "integrations", label: "Integrations", icon: <Plug size={18} aria-hidden />, roles: ["SYSTEM_ADMIN", "DEPARTMENT_ADMIN", "AUDITOR"] },
   { key: "integration-jobs", label: "Integration Jobs", icon: <Plug size={18} aria-hidden />, roles: ["SYSTEM_ADMIN", "DEPARTMENT_ADMIN", "AUDITOR"] },
+  { key: "interoperability", label: "Interoperability", icon: <ArrowRightLeft size={18} aria-hidden />, roles: ["SYSTEM_ADMIN", "DEPARTMENT_ADMIN", "OFFICER", "AUDITOR"] },
   { key: "profile", label: "My Profile", icon: <UserCircle size={18} aria-hidden />, roles: ["SYSTEM_ADMIN", "DEPARTMENT_ADMIN", "OFFICER", "AUDITOR"] },
   { key: "settings", label: "Settings", icon: <SettingsIcon size={18} aria-hidden />, roles: ["SYSTEM_ADMIN", "DEPARTMENT_ADMIN", "OFFICER", "AUDITOR"] },
 ];
@@ -101,7 +105,8 @@ export function AppShell({
           item.key === view ||
           (view === "officer-detail" && item.key === "officers") ||
           ((view === "case-create" || view === "case-detail") && item.key === "cases") ||
-          ((view === "ai-review") && item.key === "ai");
+          ((view === "ai-review") && item.key === "ai") ||
+          ((view === "interop-export" || view === "interop-import") && item.key === "interoperability");
         return (
           <button
             key={item.key}

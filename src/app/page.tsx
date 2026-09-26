@@ -30,6 +30,9 @@ import { AIReviewQueueView } from "@/components/platform/views/AIReviewQueueView
 import { GlobalSearchView } from "@/components/platform/views/GlobalSearchView";
 import { IntegrationsView, IntegrationDetailView } from "@/components/platform/views/IntegrationsView";
 import { IntegrationJobsView } from "@/components/platform/views/IntegrationJobsView";
+import { InteroperabilityView } from "@/components/platform/views/interop/InteropView";
+import { InteropExportView } from "@/components/platform/views/interop/InteropExportView";
+import { InteropImportView } from "@/components/platform/views/interop/InteropImportView";
 import { LoadingState, ErrorState } from "@/components/platform/common";
 import { ShieldAlert } from "lucide-react";
 
@@ -391,6 +394,20 @@ function Shell() {
         ) : (
           <IntegrationJobsView />
         );
+      break;
+    case "interoperability":
+      content = (
+        <InteroperabilityView
+          onOpenExport={() => navigate("interop-export")}
+          onOpenImport={() => navigate("interop-import")}
+        />
+      );
+      break;
+    case "interop-export":
+      content = <InteropExportView onOpenCase={(caseId) => setNav({ view: "case-detail", caseId })} />;
+      break;
+    case "interop-import":
+      content = <InteropImportView />;
       break;
     default:
       content = <DashboardView onNavigate={navigate} />;

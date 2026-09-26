@@ -1,4 +1,5 @@
 import { createReadStream, existsSync, mkdirSync, unlinkSync } from "fs";
+import { randomUUID } from "crypto";
 import { readFile, stat } from "fs/promises";
 import path from "path";
 import { Readable } from "stream";
@@ -42,7 +43,15 @@ const KEY_PATTERNS = [
   /^cases\/[A-Za-z0-9_-]+\/documents\/[0-9a-fA-F-]{36}\/object$/,
   /^evidence\/[A-Za-z0-9_-]+\/[0-9a-fA-F-]{36}\/object$/,
   /^exports\/[A-Za-z0-9_-]+\/[0-9a-fA-F-]{36}\/object$/,
+  // Phase 9 — manual interoperability packages (§20): temporary secure
+  // storage inside the SAME encrypted root, never publicly accessible.
+  /^interop-packages\/[A-Za-z0-9_-]+\/[0-9a-fA-F-]{36}\/object$/,
 ];
+
+/** Phase 9 — opaque storage key for a manual interop package artifact. */
+export function buildInteropPackageKey(jobId: string): string {
+  return `interop-packages/${jobId}/${randomUUID()}/object`;
+}
 
 export function buildStorageKey(caseInternalId: string, documentUuid: string): string {
   return `cases/${caseInternalId}/documents/${documentUuid}/object`;
