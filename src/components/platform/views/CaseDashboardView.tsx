@@ -446,7 +446,7 @@ export function CaseDashboardView({ caseRef, onBack, onUploadDocument, onOpenDoc
  />
 
       {/* ---------- CASE KNOWLEDGE GRAPH (Phase 6, spec §67) ---------- */}
-      <CaseGraphSection caseRef={caseRef} canManage={canManage} />
+      <CaseGraphSection caseRef={caseRef} canManage={canManage} onOpenDocument={onOpenDocument} onOpenEvidence={onOpenEvidence} />
 
       {/* ---------- INTEGRITY SUMMARY (Phase 4, spec §62) ---------- */}
       {integrity && (
