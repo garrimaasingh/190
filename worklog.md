@@ -337,3 +337,19 @@ Work Log:
 
 Stage Summary:
 - Project is downloadable again via the 26 MB archive in download/; node_modules excluded by design (bun install restores it). No application code changed; dev server untouched; Phase 9 remains complete (398/398).
+
+---
+Task ID: 17
+Agent: Super Z (main agent)
+Task: "fix" (screenshot did not arrive) — presumed retry of failed project download; slim workspace + verify app health
+
+Work Log:
+- User screenshot /home/z/my-project/upload/pasted_image_1790489220048.png NEVER reached disk (upload/ empty — same upload-path issue as Task 13); diagnosis proceeded on the most probable cause: platform project download failing again because workspace still carried 1.2 GB node_modules.
+- Server log clean (/tmp/justice-dev.log: only normal prisma queries + 200s); zip deliverable intact (26 MB).
+- Safe reductions executed: removed duplicate platform binaries node_modules/@next/swc-linux-x64-musl (112 MB) + @swc/core-linux-x64-musl (33 MB) — glibc system, gnu variants in use; killed dev server, deleted accumulated .next (138 MB → fresh 80 MB after warm).
+- ATTEMPTED: move node_modules out of workspace + symlink back — sandbox REJECTED symlink creation ("Creating symbolic links is not allowed"); command was blocked pre-execution, nothing moved, node_modules intact. Consequence: node_modules cannot leave the project root while keeping dev server + bun test workflow alive.
+- Dev server restarted fresh (setsid, port 3000): UP in ~20 s, GET / 200, /api/v1/meta 401 anon (correct), real login via curl POST /api/v1/auth/login → 200 + session cookie, /api/v1/auth/me → 200 authed. Full stack (Prisma, auth, session) healthy through slimmed node_modules.
+- Final sizes: workspace 1.4 GB (was 1.5 GB): node_modules 1.1 GB, .next 80 MB, skills 61 MB (platform-owned, untouched), db 42 MB (user data, kept).
+
+Stage Summary:
+- App fully functional after cleanup; workspace reduced by all SAFE means (~150 MB). Platform "download project" may STILL fail while node_modules (1.1 GB) must remain in-root — symlink workaround forbidden by sandbox. Guaranteed download path remains download/justice-platform-project-20260927.zip (26 MB, verified, includes seeded DB + SETUP.md). If the user's screenshot showed a DIFFERENT error (not project download), re-send description needed — image never reached disk.
