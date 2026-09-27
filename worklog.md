@@ -323,3 +323,17 @@ Work Log:
 Stage Summary:
 - Phase 9 COMPLETE per §86 acceptance: versioned ZIP package format with manifest/metadata/integrity, immutable package IDs, case/document/evidence/relationship/optional-audit exports behind per-record authorization + clearance filtering, export jobs + encrypted TTL-bound temp storage + controlled audited download + expiration/cleanup, secure import (archive-security, schema gate, integrity verification, honest signature status, scanner gate, staging, reference resolution via Phase 8 provenance layer, duplicate detection, conflict management w/ immutable-field + classification-downgrade protection, approval w/ separation of duties, commit through REAL Phase 3/4 pipelines, honest PARTIAL reporting), Phase 5 AI auto-processing + Phase 6 graph sync + Phase 8 provenance reuse, /interoperability dashboard + export/import UIs, 20 new audit events in the immutable chain, and all §66-§76 security tests green.
 - HONEST BOUNDARIES: manual packages are a file-transfer FALLBACK — never a live integration (labeled everywhere); Phase 7 watermark/secure-print does NOT exist in this repo — imported documents flow through the existing authorized Phase 3 viewer and this is the reported gap; FileSecurityScanner remains a DEVELOPMENT STUB (magic bytes/EICAR/MZ/PDF-script heuristics — production AV is a documented requirement); SHA-256 integrity ≠ authenticity — the pluggable PackageSignatureService ships UNSUPPORTED; package encryption at rest reuses the Phase 3 AES-256-GCM provider while recipient-based/transfer-channel encryption and package-password workflows are documented as NOT implemented; cleanup is lazy + admin-triggered (no cron in sandbox); SQLite+memory-bounded streaming is the MVP (limits documented); single-node synchronous jobs with full job bookkeeping (worker adoption = future work).
+
+---
+Task ID: 16
+Agent: Super Z (main agent)
+Task: Fix "project download failed" — workspace too large for platform download
+
+Work Log:
+- Diagnosed: workspace = 1.5 GB (node_modules 1.2 GB + .next/dev cache 138 MB + skills 61 MB + db 42 MB); actual source+config+db ≈ 46 MB. Platform project download zips the whole folder → fails on size/timeout.
+- Fix: scripts/package-project.sh builds a lean archive excluding node_modules/.next/skills/tool-results/download/.git/logs; SETUP.md added at project root with quick-start (bun install && bun run dev), demo credentials, test commands, and the honest Phase 9 boundaries.
+- Deliverable: download/justice-platform-project-20260927.zip — 26 MB, 5,195 files, unzip -t OK; includes db/custom.db (1.8 MB, seeded) + db/uploads (incl. Phase 9 interop package objects) so the project runs out of the box after bun install.
+- Running dev server deliberately NOT touched (node_modules kept live); .next cache left in place so the preview keeps serving without a recompile stall.
+
+Stage Summary:
+- Project is downloadable again via the 26 MB archive in download/; node_modules excluded by design (bun install restores it). No application code changed; dev server untouched; Phase 9 remains complete (398/398).
